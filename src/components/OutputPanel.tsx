@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { CheckCircle2, XCircle, Clock, Hash, Type, List, Braces, ChevronDown, ChevronRight, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { highlight, type HighlightLanguage } from '@/lib/highlight';
 
 interface OutputEntry {
   type: 'log' | 'error' | 'result' | 'info';
@@ -58,6 +59,15 @@ function truncateContent(content: string, maxChars: number, maxLines: number): {
       ? content.slice(0, maxChars) + '\n...'
       : lines.slice(0, maxLines).join('\n') + '\n...';
   return { truncated, isLong: true };
+}
+
+function getOutputLanguage(content: string): HighlightLanguage {
+  try {
+    JSON.parse(content);
+    return 'json';
+  } catch {
+    return 'plaintext';
+  }
 }
 
 const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting }) => {
@@ -182,55 +192,59 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
               const { truncated, isLong } = truncateContent(formatted, TRUNCATE_CHARS, TRUNCATE_LINES);
               const isExpanded = expanded.has(index);
               const showFull = !isLong || isExpanded;
+              const displayText = showFull ? formatted : truncated;
+              const lang = getOutputLanguage(entry.content);
+              const highlightedHtml = highlight(displayText, lang);
               return (
                 <div
                   key={index}
                   className={`font-mono text-sm p-3 rounded ${getEntryStyles(entry.type)}`}
                 >
-                  <div className="flex items-start gap-2">
+                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
                     {entry.dataType && (
                       <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded shrink-0">
                         {getTypeIcon(entry.dataType)}
                         {entry.dataType}
                       </span>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <pre className="whitespace-pre-wrap break-words">
-                        {showFull ? formatted : truncated}
-                      </pre>
-                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    <div className="flex items-center gap-1 flex-1 justify-end min-w-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0 shrink-0"
+                        onClick={() => copyToClipboard(formatted, 'Entry copied')}
+                        title="Copy"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                      {isLong && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 w-6 p-0"
-                          onClick={() => copyToClipboard(formatted, 'Entry copied')}
-                          title="Copy"
+                          className="h-6 text-xs gap-1 shrink-0"
+                          onClick={() => toggleExpanded(index)}
                         >
-                          <Copy className="w-3 h-3" />
+                          {isExpanded ? (
+                            <>
+                              <ChevronDown className="w-3 h-3" />
+                              Collapse
+                            </>
+                          ) : (
+                            <>
+                              <ChevronRight className="w-3 h-3" />
+                              Expand
+                            </>
+                          )}
                         </Button>
-                        {isLong && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs gap-1"
-                            onClick={() => toggleExpanded(index)}
-                          >
-                            {isExpanded ? (
-                              <>
-                                <ChevronDown className="w-3 h-3" />
-                                Collapse
-                              </>
-                            ) : (
-                              <>
-                                <ChevronRight className="w-3 h-3" />
-                                Expand
-                              </>
-                            )}
-                          </Button>
-                        )}
-                      </div>
+                      )}
                     </div>
                   </div>
+                  <pre className="whitespace-pre-wrap break-words mt-0">
+                    <code
+                      className="hljs"
+                      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+                    />
+                  </pre>
                 </div>
               );
             })}

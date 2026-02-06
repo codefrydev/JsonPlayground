@@ -1,12 +1,15 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import AutocompleteDropdown from './AutocompleteDropdown';
 import { useAutocomplete, AutocompleteSuggestion } from '@/hooks/useAutocomplete';
+import { highlight, type HighlightLanguage } from '@/lib/highlight';
 
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   readOnly?: boolean;
+  /** Language for syntax highlighting (enables overlay when set). */
+  language?: 'json' | 'javascript';
   jsonData?: unknown;
   enableAutocomplete?: boolean;
   /** When set, insert this text at cursor then clear (via onInsertDone). */
@@ -19,6 +22,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   onChange,
   placeholder = '',
   readOnly = false,
+  language,
   jsonData,
   enableAutocomplete = false,
   insertText,
@@ -26,8 +30,14 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
+  const highlightScrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+
+  const highlightedHtml = useMemo(() => {
+    if (!language) return '';
+    return highlight(value || '', language as HighlightLanguage);
+  }, [value, language]);
 
   // Insert text at cursor when insertText is set (e.g. from tree "Use in code")
   const lastInsertRef = useRef<string | null>(null);
@@ -66,6 +76,10 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   const handleScroll = () => {
     if (textareaRef.current && lineNumbersRef.current) {
       lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
+    }
+    if (textareaRef.current && highlightScrollRef.current) {
+      highlightScrollRef.current.scrollTop = textareaRef.current.scrollTop;
+      highlightScrollRef.current.scrollLeft = textareaRef.current.scrollLeft;
     }
   };
 
@@ -232,18 +246,36 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
         ))}
       </div>
 
-      {/* Editor */}
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={handleChange}
-        onScroll={handleScroll}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        readOnly={readOnly}
-        spellCheck={false}
-        className="flex-1 bg-transparent text-foreground p-3 resize-none outline-none code-textarea editor-scrollbar placeholder:text-muted-foreground/50"
-      />
+      {/* Editor: highlight overlay (when language set) + textarea */}
+      <div className="relative flex-1 min-w-0 min-h-0">
+        {language && (
+          <div
+            ref={highlightScrollRef}
+            className="absolute inset-0 overflow-auto editor-scrollbar pointer-events-none"
+            aria-hidden
+          >
+            <pre className="code-highlight-overlay p-3 m-0 block">
+              <code
+                className="hljs block"
+                dangerouslySetInnerHTML={{ __html: highlightedHtml || '&#8203;' }}
+              />
+            </pre>
+          </div>
+        )}
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={handleChange}
+          onScroll={handleScroll}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          readOnly={readOnly}
+          spellCheck={false}
+          className={`absolute inset-0 w-full h-full bg-transparent p-3 resize-none outline-none code-textarea editor-scrollbar placeholder:text-muted-foreground/50 ${
+            language ? 'code-textarea-overlay' : 'text-foreground'
+          }`}
+        />
+      </div>
 
       {/* Autocomplete Dropdown */}
       {enableAutocomplete && isOpen && suggestions.length > 0 && (

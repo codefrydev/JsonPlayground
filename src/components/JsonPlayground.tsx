@@ -242,13 +242,22 @@ const JsonPlayground: React.FC = () => {
         return;
       }
 
-      // Create function with data in scope
-      const fn = new Function(
-        'data',
-        'console',
-        `"use strict";
-        ${cleanCode.includes('return') ? cleanCode : `return (${cleanCode})`}`
-      );
+      // Build function(s): if no return, run each line and display every expression's result
+      const lines = cleanCode
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const hasExplicitReturn = cleanCode.includes('return');
+      const multiResult = !hasExplicitReturn && lines.length > 1;
+
+      let fn: (d: unknown, c: typeof customConsole) => unknown;
+      if (hasExplicitReturn) {
+        fn = new Function('data', 'console', `"use strict";\n${cleanCode}`) as (d: unknown, c: typeof customConsole) => unknown;
+      } else if (lines.length === 1) {
+        fn = new Function('data', 'console', `"use strict";\nreturn (${lines[0]})`) as (d: unknown, c: typeof customConsole) => unknown;
+      } else {
+        fn = new Function('data', 'console', `"use strict";\nreturn (undefined)`) as (d: unknown, c: typeof customConsole) => unknown;
+      }
 
       const runId = ++executionRunIdRef.current;
       executionTimedOutRef.current = false;
@@ -271,7 +280,18 @@ const JsonPlayground: React.FC = () => {
 
       setTimeout(() => {
         try {
-          const result = fn(data, customConsole);
+          let results: unknown[];
+          if (multiResult) {
+            results = [];
+            for (const line of lines) {
+              const lineFn = new Function('data', 'console', `"use strict"; return (${line})`) as (d: unknown, c: typeof customConsole) => unknown;
+              results.push(lineFn(data, customConsole));
+            }
+          } else {
+            const single = fn(data, customConsole);
+            results = single !== undefined ? [single] : [];
+          }
+
           const endTime = performance.now();
           if (executionTimedOutRef.current) return;
 
@@ -283,8 +303,8 @@ const JsonPlayground: React.FC = () => {
               dataType: log.dataType,
             });
           });
-          if (result !== undefined) {
-            const resultStr = typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result);
+          for (const result of results) {
+            const resultStr = typeof result === 'object' && result !== null ? JSON.stringify(result, null, 2) : String(result);
             newOutput.push({
               type: 'result',
               content: resultStr,
@@ -642,6 +662,7 @@ const JsonPlayground: React.FC = () => {
                         value={jsonInput}
                         onChange={handleJsonChange}
                         placeholder="Enter your JSON here..."
+                        language="json"
                       />
                     ) : (
                       <div className="flex-1 overflow-hidden min-h-0">
@@ -692,6 +713,7 @@ const JsonPlayground: React.FC = () => {
                       value={codeInput}
                       onChange={setCodeInput}
                       placeholder="Write your code here..."
+                      language="javascript"
                       jsonData={parsedJsonData}
                       enableAutocomplete={true}
                       insertText={insertIntoCode}

@@ -116,6 +116,27 @@
   color: hsl(var(--code-bracket));
 }
 
+/* Highlight.js theme – map to app code tokens */
+.hljs {
+  background: transparent;
+  color: hsl(var(--foreground));
+  @apply font-mono text-sm leading-relaxed;
+}
+.hljs .hljs-string { color: hsl(var(--code-string)); }
+.hljs .hljs-number { color: hsl(var(--code-number)); }
+.hljs .hljs-keyword,
+.hljs .hljs-literal { color: hsl(var(--code-keyword)); }
+.hljs .hljs-attr,
+.hljs .hljs-property { color: hsl(var(--code-property)); }
+.hljs .hljs-punctuation,
+.hljs .hljs-operator { color: hsl(var(--code-bracket)); }
+.hljs .hljs-comment { color: hsl(var(--muted-foreground)); }
+.hljs .hljs-title,
+.hljs .hljs-built_in { color: hsl(var(--code-keyword)); }
+.hljs .hljs-params { color: hsl(var(--foreground)); }
+.hljs .hljs-function { color: hsl(var(--code-keyword)); }
+.hljs .hljs-variable { color: hsl(var(--foreground)); }
+
 /* Textarea styling */
 .code-textarea {
   @apply font-mono text-sm leading-relaxed;
@@ -125,6 +146,20 @@
 
 .code-textarea::selection {
   background: hsl(var(--primary) / 0.3);
+}
+
+/* Code editor overlay: same metrics as .code-textarea for alignment */
+.code-highlight-overlay {
+  @apply font-mono text-sm leading-relaxed;
+  tab-size: 2;
+  -moz-tab-size: 2;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.code-textarea-overlay {
+  color: transparent;
+  caret-color: hsl(var(--code-cursor));
 }
 
 /* Panel styling */
