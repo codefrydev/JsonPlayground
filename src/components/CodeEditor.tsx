@@ -67,6 +67,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     suggestions,
     selectedIndex,
     triggerPosition,
+    callbackReplaceRange,
     findSuggestions,
     selectSuggestion,
     moveSelection,
@@ -157,6 +158,18 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
       return;
     }
 
+    if (callbackReplaceRange) {
+      const newValue = value.slice(0, callbackReplaceRange.start) + insertText + value.slice(callbackReplaceRange.end);
+      onChange(newValue);
+      setTimeout(() => {
+        const newCursorPos = callbackReplaceRange.start + insertText.length;
+        textarea.selectionStart = textarea.selectionEnd = newCursorPos;
+        textarea.focus();
+      }, 0);
+      selectSuggestion(suggestion);
+      return;
+    }
+
     const bracketMatch = beforeCursor.match(/(data(?:\.[a-zA-Z_$][\w$]*|\[\d+\])*)\[["'][^"']*$/);
     const pathMatch = beforeCursor.match(/(data(?:\.[a-zA-Z_$][\w$]*|\[\d+\])*)\.?([a-zA-Z_$][\w$]*)?$/);
 
@@ -173,7 +186,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     }
 
     selectSuggestion(suggestion);
-  }, [value, onChange, selectSuggestion]);
+  }, [value, onChange, selectSuggestion, callbackReplaceRange]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Handle autocomplete navigation

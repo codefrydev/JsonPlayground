@@ -131,7 +131,7 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
     <div className="h-full flex flex-col bg-editor-bg">
       {/* Status Bar */}
       {meta && (
-        <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-secondary/30 text-xs flex-wrap">
+        <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-secondary/50 text-xs flex-wrap">
           {meta.jsonValid !== undefined && (
             <div className={`flex items-center gap-1.5 ${meta.jsonValid ? 'text-success' : 'text-destructive'}`}>
               {meta.jsonValid ? (
@@ -155,17 +155,17 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
             </div>
           )}
           {entries.length > 0 && (
-            <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={copyAll}>
+            <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={copyAll}>
               <Copy className="w-3 h-3" />
               Copy all
             </Button>
           )}
           {collapsibleIndices.length > 0 && (
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={expandAll}>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={expandAll}>
                 Expand all
               </Button>
-              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={collapseAll}>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={collapseAll}>
                 Collapse all
               </Button>
             </div>
@@ -174,7 +174,7 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
       )}
 
       {/* Output Content */}
-      <div className="flex-1 overflow-auto editor-scrollbar p-4">
+      <div className="flex-1 overflow-auto editor-scrollbar p-3">
         {isExecuting ? (
           <div className="flex items-center gap-2 text-muted-foreground text-sm font-mono">
             <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
@@ -211,7 +211,7 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 w-6 p-0 shrink-0"
+                        className="h-7 w-7 p-0 shrink-0"
                         onClick={() => copyToClipboard(formatted, 'Entry copied')}
                         title="Copy"
                       >
@@ -221,7 +221,7 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 text-xs gap-1 shrink-0"
+                          className="h-7 text-xs gap-1 shrink-0"
                           onClick={() => toggleExpanded(index)}
                         >
                           {isExpanded ? (

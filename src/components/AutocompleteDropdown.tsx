@@ -77,7 +77,7 @@ const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
         left: position.left,
       }}
     >
-      <div className="px-3 py-1.5 bg-secondary/50 border-b border-border">
+      <div className="px-3 py-2 bg-secondary/50 border-b border-border">
         <span className="text-xs text-muted-foreground font-medium">
           Suggestions • {suggestions.length} available
         </span>
@@ -114,7 +114,7 @@ const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
           );
         })}
       </div>
-      <div className="px-3 py-1.5 bg-secondary/30 border-t border-border text-xs text-muted-foreground flex gap-3">
+      <div className="px-3 py-2 bg-secondary/30 border-t border-border text-xs text-muted-foreground flex gap-3">
         <span>↑↓ Navigate</span>
         <span>Tab/Enter Select</span>
         <span>Esc Close</span>

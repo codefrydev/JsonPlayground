@@ -21,15 +21,15 @@ const PanelHeader: React.FC<PanelHeaderProps> = ({
 
   return (
     <div className="panel-header">
-      <div className="flex items-center gap-3">
-        <span className="panel-title">{title}</span>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="panel-title truncate">{title}</span>
         {statusText && (
-          <span className={`text-xs font-medium ${statusColors[status]}`}>
+          <span className={`shrink-0 text-xs font-medium ${statusColors[status]}`}>
             {statusText}
           </span>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
   );
 };

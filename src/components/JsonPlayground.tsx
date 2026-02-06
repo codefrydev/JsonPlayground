@@ -613,20 +613,9 @@ const JsonPlayground: React.FC = () => {
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      {showRestoreBanner && (
-        <div className="flex items-center justify-between gap-4 px-4 py-2 bg-primary/10 border-b border-border text-sm">
-          <span className="text-foreground">Restore previous session?</span>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => { setShowRestoreBanner(false); savedStateRef.current = null; }}>
-              Dismiss
-            </Button>
-            <Button size="sm" onClick={restoreSession}>Restore</Button>
-          </div>
-        </div>
-      )}
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between gap-4 px-6 py-4 border-b border-border bg-card">
+        <div className="flex shrink-0 items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
             <FileJson className="w-5 h-5 text-primary" />
           </div>
@@ -634,7 +623,16 @@ const JsonPlayground: React.FC = () => {
             JSON Playground
           </h1>
         </div>
-        <div className="flex items-center gap-3">
+        {showRestoreBanner && (
+          <div className="flex min-w-0 shrink items-center gap-2 rounded-md bg-primary/10 px-3 py-1.5 text-sm">
+            <span className="truncate text-foreground">Restore previous session?</span>
+            <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1.5 text-xs" onClick={() => { setShowRestoreBanner(false); savedStateRef.current = null; }}>
+              Dismiss
+            </Button>
+            <Button size="sm" className="h-8 shrink-0 gap-1.5 text-xs" onClick={restoreSession}>Restore</Button>
+          </div>
+        )}
+        <div className="flex shrink-0 items-center gap-3">
           <Button
             variant={autoRun ? 'default' : 'outline'}
             size="sm"
@@ -692,13 +690,13 @@ const JsonPlayground: React.FC = () => {
                           className="hidden"
                           onChange={handleFileChange}
                         />
-                        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={loadFromFile} title="Load from file">
+                        <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={loadFromFile} title="Load from file">
                           <Upload className="w-3.5 h-3.5" />
                           Load file
                         </Button>
                         <Dialog open={loadUrlOpen} onOpenChange={setLoadUrlOpen}>
                           <DialogTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" title="Load from URL">
+                            <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" title="Load from URL">
                               <Link className="w-3.5 h-3.5" />
                               Load URL
                             </Button>
@@ -722,11 +720,11 @@ const JsonPlayground: React.FC = () => {
                             </div>
                           </DialogContent>
                         </Dialog>
-                        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={formatJson} title="Format JSON">
+                        <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={formatJson} title="Format JSON">
                           <AlignLeft className="w-3.5 h-3.5" />
                           Format
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={minifyJson} title="Minify JSON">
+                        <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={minifyJson} title="Minify JSON">
                           <Minus className="w-3.5 h-3.5" />
                           Minify
                         </Button>
@@ -759,35 +757,13 @@ const JsonPlayground: React.FC = () => {
                   />
                   <div className="flex-1 overflow-hidden flex flex-col min-h-0">
                     {jsonPanelTab === 'editor' ? (
-                      <>
-                        {jsonStatus.valid && (
-                          <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-muted/30">
-                            <span className="text-xs text-muted-foreground">Use the fold icons in the gutter to collapse nodes, or</span>
-                            <Button
-                              variant="link"
-                              size="sm"
-                              className="h-auto p-0 text-xs font-medium"
-                              onClick={() => {
-                                setJsonPanelTab('tree');
-                                try {
-                                  localStorage.setItem(JSON_PANEL_TAB_KEY, 'tree');
-                                } catch {
-                                  /* ignore */
-                                }
-                              }}
-                            >
-                              switch to Tree view
-                            </Button>
-                          </div>
-                        )}
-                        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                          <JsonEditor
-                            value={jsonInput}
-                            onChange={handleJsonChange}
-                            placeholder="Enter your JSON here..."
-                          />
-                        </div>
-                      </>
+                      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                        <JsonEditor
+                          value={jsonInput}
+                          onChange={handleJsonChange}
+                          placeholder="Enter your JSON here..."
+                        />
+                      </div>
                     ) : (
                       <div className="flex-1 min-h-0 overflow-auto">
                         <JsonTree
@@ -809,10 +785,10 @@ const JsonPlayground: React.FC = () => {
                     title="Code Editor"
                     statusText="JavaScript"
                     actions={
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" title="Insert snippet">
+                            <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" title="Insert snippet">
                               <ListOrdered className="w-3.5 h-3.5" />
                               Snippets
                             </Button>
@@ -828,7 +804,7 @@ const JsonPlayground: React.FC = () => {
                             ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                        <Code2 className="w-4 h-4 text-muted-foreground" />
+                        <Code2 className="w-3.5 h-3.5 text-muted-foreground" />
                       </div>
                     }
                   />
@@ -856,7 +832,7 @@ const JsonPlayground: React.FC = () => {
             <div className="h-full flex flex-col">
               <PanelHeader
                 title="Output"
-                actions={<Terminal className="w-4 h-4 text-muted-foreground" />}
+                actions={<Terminal className="w-3.5 h-3.5 text-muted-foreground" />}
               />
               <div className="flex-1 overflow-hidden">
                 <OutputPanel 

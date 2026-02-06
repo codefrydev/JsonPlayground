@@ -31,6 +31,10 @@
     --ring: 199 89% 48%;
     --radius: 0.5rem;
 
+    /* UI consistency: bar height and content padding (optional overrides) */
+    --toolbar-height: 2rem;
+    --content-padding: 0.75rem;
+
     /* Code Editor Tokens */
     --code-string: 142 71% 55%;
     --code-number: 38 92% 60%;
@@ -217,7 +221,7 @@
   border-right: none;
 }
 
-/* Panel styling */
+/* Panel styling – single source for bar padding (px-4 py-2); use this or match it for all bars/banners */
 .panel-header {
   @apply flex items-center justify-between px-4 py-2 border-b border-border bg-secondary/50;
 }

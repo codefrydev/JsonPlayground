@@ -123,11 +123,11 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           {getPreview(value)}
         </span>
         <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleCopy} title="Copy path">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy} title="Copy path">
             <Copy className="w-3 h-3" />
           </Button>
           {onInsertPath && (
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleInsert} title="Use in code">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleInsert} title="Use in code">
               <Code2 className="w-3 h-3" />
             </Button>
           )}
@@ -153,39 +153,13 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               {isArray ? `[${(value as unknown[]).length} items]` : `{${Object.keys(value as object).length} keys}`}
             </span>
             <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-              <span
-                role="button"
-                tabIndex={0}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground cursor-pointer"
-                onClick={handleCopy}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleCopy(e as unknown as React.MouseEvent);
-                  }
-                }}
-                title="Copy path"
-              >
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy} title="Copy path">
                 <Copy className="w-3 h-3" />
-              </span>
+              </Button>
               {onInsertPath && (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground cursor-pointer"
-                  onClick={handleInsert}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleInsert(e as unknown as React.MouseEvent);
-                    }
-                  }}
-                  title="Use in code"
-                >
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleInsert} title="Use in code">
                   <Code2 className="w-3 h-3" />
-                </span>
+                </Button>
               )}
             </div>
           </button>
@@ -227,7 +201,7 @@ const JsonTree: React.FC<JsonTreeProps> = ({ data, onCopyPath, onInsertPath }) =
 
   if (data === null || data === undefined) {
     return (
-      <div className="p-4 text-muted-foreground font-mono text-sm">
+      <div className="p-3 text-muted-foreground font-mono text-sm">
         {data === null ? 'null' : 'undefined'}
       </div>
     );
@@ -235,7 +209,7 @@ const JsonTree: React.FC<JsonTreeProps> = ({ data, onCopyPath, onInsertPath }) =
 
   if (typeof data !== 'object') {
     return (
-      <div className="p-4 font-mono text-sm">
+      <div className="p-3 font-mono text-sm">
         {getTypeIcon(typeof data)}
         <span className="ml-2">{getPreview(data)}</span>
       </div>
