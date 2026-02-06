@@ -153,13 +153,39 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               {isArray ? `[${(value as unknown[]).length} items]` : `{${Object.keys(value as object).length} keys}`}
             </span>
             <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleCopy} title="Copy path">
+              <span
+                role="button"
+                tabIndex={0}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                onClick={handleCopy}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleCopy(e as unknown as React.MouseEvent);
+                  }
+                }}
+                title="Copy path"
+              >
                 <Copy className="w-3 h-3" />
-              </Button>
+              </span>
               {onInsertPath && (
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleInsert} title="Use in code">
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground cursor-pointer"
+                  onClick={handleInsert}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleInsert(e as unknown as React.MouseEvent);
+                    }
+                  }}
+                  title="Use in code"
+                >
                   <Code2 className="w-3 h-3" />
-                </Button>
+                </span>
               )}
             </div>
           </button>

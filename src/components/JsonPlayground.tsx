@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Play, Trash2, FileJson, Code2, Terminal, Zap, FileCode, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2 } from 'lucide-react';
 import CodeEditor from './CodeEditor';
+import JsonEditor from './JsonEditor';
 import PanelHeader from './PanelHeader';
 import OutputPanel, { OutputEntry, ExecutionMeta } from './OutputPanel';
 import JsonTree from './JsonTree';
@@ -70,6 +71,7 @@ const getDataShape = (data: unknown): string => {
 };
 
 const STORAGE_KEY = 'json-playground-state';
+const JSON_PANEL_TAB_KEY = 'json-playground-json-panel-tab';
 const SHARE_PARAM = 's';
 const MAX_SHARE_LENGTH = 1800;
 
@@ -82,6 +84,18 @@ function loadSavedState(): { json: string; code: string } | null {
     return null;
   } catch {
     return null;
+  }
+}
+
+function getInitialJsonPanelTab(): 'editor' | 'tree' {
+  const saved = localStorage.getItem(JSON_PANEL_TAB_KEY);
+  if (saved === 'editor' || saved === 'tree') return saved;
+  try {
+    const state = loadSavedState();
+    JSON.parse(state?.json ?? DEFAULT_JSON);
+    return 'tree';
+  } catch {
+    return 'editor';
   }
 }
 
@@ -100,7 +114,7 @@ const JsonPlayground: React.FC = () => {
   }>({ valid: true });
 
   const [parsedJsonData, setParsedJsonData] = useState<unknown>(null);
-  const [jsonPanelTab, setJsonPanelTab] = useState<'editor' | 'tree'>('editor');
+  const [jsonPanelTab, setJsonPanelTab] = useState<'editor' | 'tree'>(getInitialJsonPanelTab);
   const [insertIntoCode, setInsertIntoCode] = useState<string | null>(null);
   const [loadUrlOpen, setLoadUrlOpen] = useState(false);
   const [loadUrlValue, setLoadUrlValue] = useState('');
@@ -641,7 +655,19 @@ const JsonPlayground: React.FC = () => {
                           <Minus className="w-3.5 h-3.5" />
                           Minify
                         </Button>
-                        <Tabs value={jsonPanelTab} onValueChange={(v) => setJsonPanelTab(v as 'editor' | 'tree')} className="w-auto">
+                        <Tabs
+                          value={jsonPanelTab}
+                          onValueChange={(v) => {
+                            const tab = v as 'editor' | 'tree';
+                            setJsonPanelTab(tab);
+                            try {
+                              localStorage.setItem(JSON_PANEL_TAB_KEY, tab);
+                            } catch {
+                              /* ignore */
+                            }
+                          }}
+                          className="w-auto"
+                        >
                           <TabsList className="h-8">
                             <TabsTrigger value="editor" className="gap-1.5 text-xs px-2">
                               <FileCode className="w-3.5 h-3.5" />
@@ -658,12 +684,35 @@ const JsonPlayground: React.FC = () => {
                   />
                   <div className="flex-1 overflow-hidden flex flex-col min-h-0">
                     {jsonPanelTab === 'editor' ? (
-                      <CodeEditor
-                        value={jsonInput}
-                        onChange={handleJsonChange}
-                        placeholder="Enter your JSON here..."
-                        language="json"
-                      />
+                      <>
+                        {jsonStatus.valid && (
+                          <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1 border-b border-border bg-muted/30">
+                            <span className="text-xs text-muted-foreground">Use the fold icons in the gutter to collapse nodes, or</span>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="h-auto p-0 text-xs font-medium"
+                              onClick={() => {
+                                setJsonPanelTab('tree');
+                                try {
+                                  localStorage.setItem(JSON_PANEL_TAB_KEY, 'tree');
+                                } catch {
+                                  /* ignore */
+                                }
+                              }}
+                            >
+                              switch to Tree view
+                            </Button>
+                          </div>
+                        )}
+                        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                          <JsonEditor
+                            value={jsonInput}
+                            onChange={handleJsonChange}
+                            placeholder="Enter your JSON here..."
+                          />
+                        </div>
+                      </>
                     ) : (
                       <div className="flex-1 min-h-0 overflow-auto">
                         <JsonTree

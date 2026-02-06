@@ -162,6 +162,61 @@
   caret-color: hsl(var(--code-cursor));
 }
 
+/* CodeMirror JSON editor (library) – fixed height, scroll inside like tree view */
+.json-editor-codemirror {
+  min-height: 0;
+  height: 0; /* flex trick: take available space */
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.json-editor-codemirror > div {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.json-editor-codemirror .cm-editor {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: hsl(var(--editor-bg));
+}
+/* Absolute-position scroller so it fills the editor and shows scrollbars */
+.json-editor-codemirror .cm-scroller {
+  position: absolute !important;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: auto !important;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.625;
+}
+.json-editor-codemirror .cm-content {
+  min-height: 100%;
+  caret-color: hsl(var(--code-cursor));
+}
+.json-editor-codemirror .cm-scroller::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.json-editor-codemirror .cm-scroller::-webkit-scrollbar-track {
+  background: hsl(var(--editor-bg));
+}
+.json-editor-codemirror .cm-scroller::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+.json-editor-codemirror .cm-gutters {
+  background: hsl(var(--editor-gutter));
+  border-right: none;
+}
+
 /* Panel styling */
 .panel-header {
   @apply flex items-center justify-between px-4 py-2 border-b border-border bg-secondary/50;

@@ -9,7 +9,7 @@ interface CodeEditorProps {
   placeholder?: string;
   readOnly?: boolean;
   /** Language for syntax highlighting (enables overlay when set). */
-  language?: 'json' | 'javascript';
+  language?: 'javascript';
   jsonData?: unknown;
   enableAutocomplete?: boolean;
   /** When set, insert this text at cursor then clear (via onInsertDone). */
@@ -39,6 +39,9 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     return highlight(value || '', language as HighlightLanguage);
   }, [value, language]);
 
+  const lines = value.split('\n');
+  const lineCount = lines.length;
+
   // Insert text at cursor when insertText is set (e.g. from tree "Use in code")
   const lastInsertRef = useRef<string | null>(null);
   useEffect(() => {
@@ -58,9 +61,6 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
     });
     lastInsertRef.current = null;
   }, [insertText, onChange, onInsertDone, value]);
-
-  const lines = value.split('\n');
-  const lineCount = lines.length;
 
   const {
     isOpen,
