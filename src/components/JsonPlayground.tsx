@@ -665,7 +665,7 @@ const JsonPlayground: React.FC = () => {
                         language="json"
                       />
                     ) : (
-                      <div className="flex-1 overflow-hidden min-h-0">
+                      <div className="flex-1 min-h-0 overflow-auto">
                         <JsonTree
                           data={parsedJsonData}
                           onInsertPath={(path) => setInsertIntoCode(path)}
