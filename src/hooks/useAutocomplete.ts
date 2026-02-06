@@ -28,6 +28,7 @@ const getPreview = (value: unknown): string => {
 };
 
 export const CODE_SNIPPETS: AutocompleteSuggestion[] = [
+  { path: 'Dump(data)', value: null, type: 'snippet', displayPath: 'Dump(data) - show output' },
   { path: 'data.map(item => item)', value: null, type: 'snippet', displayPath: 'Map array' },
   { path: 'data.filter(item => )', value: null, type: 'snippet', displayPath: 'Filter array' },
   { path: 'data.reduce((acc, item) => acc + item, 0)', value: null, type: 'snippet', displayPath: 'Reduce' },

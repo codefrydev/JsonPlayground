@@ -41,13 +41,10 @@ const DEFAULT_JSON = `{
   }
 }`;
 
-const DEFAULT_CODE = `// Access your JSON data using 'data' object
-// Results appear automatically as you type!
-
-// Try these examples:
-data.user.name
-// data.posts.map(p => p.title)
-// data.settings`;
+const DEFAULT_CODE = `// Use Dump(value) to see output. Multi-line code is supported.
+const names = data.posts.map(p => p.title);
+Dump(names);
+Dump(data.user);`;
 
 const getDataType = (value: unknown): string => {
   if (value === null) return 'null';
@@ -246,7 +243,7 @@ const JsonPlayground: React.FC = () => {
       if (!cleanCode.trim()) {
         setOutput([{
           type: 'info',
-          content: '// Write some code to see results\n// Example: data.user.name',
+          content: '// Write some code to see results\n// Use Dump(value) to display output. Example: Dump(data.user.name)',
           timestamp: new Date(),
         }]);
         setMeta({
@@ -256,22 +253,7 @@ const JsonPlayground: React.FC = () => {
         return;
       }
 
-      // Build function(s): if no return, run each line and display every expression's result
-      const lines = cleanCode
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean);
-      const hasExplicitReturn = cleanCode.includes('return');
-      const multiResult = !hasExplicitReturn && lines.length > 1;
-
-      let fn: (d: unknown, c: typeof customConsole) => unknown;
-      if (hasExplicitReturn) {
-        fn = new Function('data', 'console', `"use strict";\n${cleanCode}`) as (d: unknown, c: typeof customConsole) => unknown;
-      } else if (lines.length === 1) {
-        fn = new Function('data', 'console', `"use strict";\nreturn (${lines[0]})`) as (d: unknown, c: typeof customConsole) => unknown;
-      } else {
-        fn = new Function('data', 'console', `"use strict";\nreturn (undefined)`) as (d: unknown, c: typeof customConsole) => unknown;
-      }
+      const usesDump = cleanCode.includes('Dump(');
 
       const runId = ++executionRunIdRef.current;
       executionTimedOutRef.current = false;
@@ -291,6 +273,99 @@ const JsonPlayground: React.FC = () => {
         setMeta((m) => ({ ...m, jsonValid: true, dataShape: getDataShape(data) }));
         setIsExecuting(false);
       }, EXECUTION_TIMEOUT_MS);
+
+      if (usesDump) {
+        // Dump-only path: run full script with Dump injected; output only what's passed to Dump (and console)
+        const dumpValues: unknown[] = [];
+        const Dump = (...args: unknown[]) => {
+          args.forEach((v) => dumpValues.push(v));
+        };
+        setTimeout(() => {
+          try {
+            const fn = new Function('data', 'console', 'Dump', `"use strict";\n${cleanCode}`) as (d: unknown, c: typeof customConsole, Dump: (...args: unknown[]) => void) => void;
+            fn(data, customConsole, Dump);
+
+            const endTime = performance.now();
+            if (executionTimedOutRef.current) return;
+
+            logs.forEach((log) => {
+              newOutput.push({
+                type: log.type,
+                content: log.content,
+                timestamp: new Date(),
+                dataType: log.dataType,
+              });
+            });
+            for (const value of dumpValues) {
+              const resultStr = typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : String(value);
+              newOutput.push({
+                type: 'result',
+                content: resultStr,
+                timestamp: new Date(),
+                dataType: getDataType(value),
+              });
+            }
+            if (newOutput.length === 0) {
+              newOutput.push({
+                type: 'info',
+                content: 'No output. Use Dump(value) to display results.',
+                timestamp: new Date(),
+              });
+            }
+            setOutput(newOutput);
+            setMeta({
+              executionTime: endTime - startTime,
+              jsonValid: true,
+              dataShape: getDataShape(data),
+            });
+          } catch (e) {
+            if (executionTimedOutRef.current) return;
+            const endTime = performance.now();
+            const error = e instanceof Error ? e.message : 'Execution error';
+            let helpfulMessage = error;
+            if (error.includes('is not defined')) {
+              const varName = error.split(' ')[0];
+              helpfulMessage = `${error}\n\n💡 Tip: Use 'data.${varName}' to access JSON properties.`;
+            } else if (error.includes('Cannot read properties of undefined')) {
+              helpfulMessage = `${error}\n\n💡 Tip: The property path doesn't exist in your JSON. Check the structure.`;
+            } else if (error.includes('is not a function')) {
+              helpfulMessage = `${error}\n\n💡 Tip: You're trying to call something that isn't a function.`;
+            }
+            newOutput.push({
+              type: 'error',
+              content: helpfulMessage,
+              timestamp: new Date(),
+            });
+            setOutput(newOutput);
+            setMeta({
+              executionTime: endTime - startTime,
+              jsonValid: true,
+              dataShape: getDataShape(data),
+            });
+          } finally {
+            clearTimeout(timeoutId);
+            if (!executionTimedOutRef.current) setIsExecuting(false);
+          }
+        }, 0);
+        return;
+      }
+
+      // Legacy path: no Dump in code — single return or per-line results
+      const lines = cleanCode
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const hasExplicitReturn = cleanCode.includes('return');
+      const multiResult = !hasExplicitReturn && lines.length > 1;
+
+      let fn: (d: unknown, c: typeof customConsole) => unknown;
+      if (hasExplicitReturn) {
+        fn = new Function('data', 'console', `"use strict";\n${cleanCode}`) as (d: unknown, c: typeof customConsole) => unknown;
+      } else if (lines.length === 1) {
+        fn = new Function('data', 'console', `"use strict";\nreturn (${lines[0]})`) as (d: unknown, c: typeof customConsole) => unknown;
+      } else {
+        fn = new Function('data', 'console', `"use strict";\nreturn (undefined)`) as (d: unknown, c: typeof customConsole) => unknown;
+      }
 
       setTimeout(() => {
         try {
