@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Hash, Type, List, Braces, Circle, Zap } from 'lucide-react';
+import { Hash, Type, List, Braces, Circle, Zap, FileCode } from 'lucide-react';
 import { AutocompleteSuggestion, getPreview } from '@/hooks/useAutocomplete';
 
 interface AutocompleteDropdownProps {
@@ -23,6 +23,8 @@ const getTypeIcon = (type: string) => {
       return <Circle className="w-3 h-3 text-warning" />;
     case 'method':
       return <Zap className="w-3 h-3 text-accent" />;
+    case 'snippet':
+      return <FileCode className="w-3 h-3 text-primary" />;
     default:
       return <Circle className="w-3 h-3 text-muted-foreground" />;
   }
@@ -42,6 +44,8 @@ const getTypeColor = (type: string) => {
       return 'text-warning';
     case 'method':
       return 'text-accent';
+    case 'snippet':
+      return 'text-primary';
     default:
       return 'text-muted-foreground';
   }
@@ -83,8 +87,9 @@ const AutocompleteDropdown: React.FC<AutocompleteDropdownProps> = ({
         className="max-h-[200px] overflow-y-auto editor-scrollbar"
       >
         {suggestions.map((suggestion, index) => {
-          const preview = suggestion.type !== 'method' ? getPreview(suggestion.value) : '';
-          
+          const preview =
+            suggestion.type === 'snippet' ? 'snippet' : suggestion.type !== 'method' ? getPreview(suggestion.value) : '';
+
           return (
             <div
               key={suggestion.path}

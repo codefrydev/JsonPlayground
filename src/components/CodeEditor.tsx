@@ -9,6 +9,9 @@ interface CodeEditorProps {
   readOnly?: boolean;
   jsonData?: unknown;
   enableAutocomplete?: boolean;
+  /** When set, insert this text at cursor then clear (via onInsertDone). */
+  insertText?: string | null;
+  onInsertDone?: () => void;
 }
 
 const CodeEditor: React.FC<CodeEditorProps> = ({
@@ -18,11 +21,33 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
   readOnly = false,
   jsonData,
   enableAutocomplete = false,
+  insertText,
+  onInsertDone,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+
+  // Insert text at cursor when insertText is set (e.g. from tree "Use in code")
+  const lastInsertRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!insertText || !textareaRef.current || !onInsertDone) return;
+    if (lastInsertRef.current === insertText) return;
+    lastInsertRef.current = insertText;
+    const ta = textareaRef.current;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const newValue = value.slice(0, start) + insertText + value.slice(end);
+    onChange(newValue);
+    const newPos = start + insertText.length;
+    onInsertDone();
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(newPos, newPos);
+    });
+    lastInsertRef.current = null;
+  }, [insertText, onChange, onInsertDone, value]);
 
   const lines = value.split('\n');
   const lineCount = lines.length;
@@ -97,28 +122,42 @@ const CodeEditor: React.FC<CodeEditorProps> = ({
 
   const handleSelectSuggestion = useCallback((suggestion: AutocompleteSuggestion) => {
     if (!textareaRef.current) return;
-    
+
     const textarea = textareaRef.current;
     const cursorPos = textarea.selectionStart;
     const beforeCursor = value.slice(0, cursorPos);
-    
-    // Find what needs to be replaced
+    const insertText = suggestion.insertPath ?? suggestion.path;
+
+    if (suggestion.type === 'snippet') {
+      const snippetTrigger = beforeCursor.match(/\/\s*$/);
+      if (snippetTrigger) {
+        const matchStart = cursorPos - snippetTrigger[0].length;
+        const newValue = value.slice(0, matchStart) + insertText + value.slice(cursorPos);
+        onChange(newValue);
+        setTimeout(() => {
+          textarea.selectionStart = textarea.selectionEnd = matchStart + insertText.length;
+          textarea.focus();
+        }, 0);
+      }
+      selectSuggestion(suggestion);
+      return;
+    }
+
+    const bracketMatch = beforeCursor.match(/(data(?:\.[a-zA-Z_$][\w$]*|\[\d+\])*)\[["'][^"']*$/);
     const pathMatch = beforeCursor.match(/(data(?:\.[a-zA-Z_$][\w$]*|\[\d+\])*)\.?([a-zA-Z_$][\w$]*)?$/);
-    
-    if (pathMatch) {
-      const [fullMatch] = pathMatch;
+
+    const fullMatch = bracketMatch ? bracketMatch[0] : pathMatch ? pathMatch[0] : null;
+    if (fullMatch) {
       const matchStart = cursorPos - fullMatch.length;
-      const newValue = value.slice(0, matchStart) + suggestion.path + value.slice(cursorPos);
+      const newValue = value.slice(0, matchStart) + insertText + value.slice(cursorPos);
       onChange(newValue);
-      
-      // Set cursor after the inserted text
       setTimeout(() => {
-        const newCursorPos = matchStart + suggestion.path.length;
+        const newCursorPos = matchStart + insertText.length;
         textarea.selectionStart = textarea.selectionEnd = newCursorPos;
         textarea.focus();
       }, 0);
     }
-    
+
     selectSuggestion(suggestion);
   }, [value, onChange, selectSuggestion]);
 

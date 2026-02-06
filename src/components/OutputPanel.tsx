@@ -1,5 +1,7 @@
-import React from 'react';
-import { CheckCircle2, XCircle, Clock, Hash, Type, List, Braces } from 'lucide-react';
+import React, { useState, useCallback, useMemo } from 'react';
+import { CheckCircle2, XCircle, Clock, Hash, Type, List, Braces, ChevronDown, ChevronRight, Copy } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 interface OutputEntry {
   type: 'log' | 'error' | 'result' | 'info';
@@ -13,6 +15,9 @@ interface ExecutionMeta {
   jsonValid?: boolean;
   dataShape?: string;
 }
+
+const TRUNCATE_CHARS = 500;
+const TRUNCATE_LINES = 10;
 
 interface OutputPanelProps {
   entries: OutputEntry[];
@@ -35,7 +40,45 @@ const getTypeIcon = (dataType?: string) => {
   }
 };
 
+function formatContent(content: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return content;
+  }
+}
+
+function truncateContent(content: string, maxChars: number, maxLines: number): { truncated: string; isLong: boolean } {
+  const lines = content.split('\n');
+  const isLong = content.length > maxChars || lines.length > maxLines;
+  if (!isLong) return { truncated: content, isLong: false };
+  const truncated =
+    content.length > maxChars
+      ? content.slice(0, maxChars) + '\n...'
+      : lines.slice(0, maxLines).join('\n') + '\n...';
+  return { truncated, isLong: true };
+}
+
 const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting }) => {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const { toast } = useToast();
+
+  const copyToClipboard = useCallback(
+    (text: string, label: string) => {
+      navigator.clipboard.writeText(text).then(
+        () => toast({ title: 'Copied', description: label }),
+        () => toast({ title: 'Copy failed', variant: 'destructive' })
+      );
+    },
+    [toast]
+  );
+
+  const copyAll = useCallback(() => {
+    const text = entries.map((e) => formatContent(e.content)).join('\n\n');
+    copyToClipboard(text, 'Output copied');
+  }, [entries, copyToClipboard]);
+
   const getEntryStyles = (type: OutputEntry['type']) => {
     switch (type) {
       case 'error':
@@ -49,20 +92,36 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
     }
   };
 
-  const formatContent = (content: string) => {
-    try {
-      const parsed = JSON.parse(content);
-      return JSON.stringify(parsed, null, 2);
-    } catch {
-      return content;
-    }
-  };
+  const toggleExpanded = useCallback((index: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
+
+  const collapsibleIndices = useMemo(
+    () =>
+      entries
+        .map((e, i) => (e.content.length > TRUNCATE_CHARS || e.content.split('\n').length > TRUNCATE_LINES ? i : -1))
+        .filter((i) => i >= 0),
+    [entries]
+  );
+
+  const expandAll = useCallback(() => {
+    setExpanded(new Set(collapsibleIndices));
+  }, [collapsibleIndices]);
+
+  const collapseAll = useCallback(() => {
+    setExpanded(new Set());
+  }, []);
 
   return (
     <div className="h-full flex flex-col bg-editor-bg">
       {/* Status Bar */}
       {meta && (
-        <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-secondary/30 text-xs">
+        <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-secondary/30 text-xs flex-wrap">
           {meta.jsonValid !== undefined && (
             <div className={`flex items-center gap-1.5 ${meta.jsonValid ? 'text-success' : 'text-destructive'}`}>
               {meta.jsonValid ? (
@@ -85,6 +144,22 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
               <span>{meta.dataShape}</span>
             </div>
           )}
+          {entries.length > 0 && (
+            <Button variant="ghost" size="sm" className="h-6 text-xs gap-1" onClick={copyAll}>
+              <Copy className="w-3 h-3" />
+              Copy all
+            </Button>
+          )}
+          {collapsibleIndices.length > 0 && (
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={expandAll}>
+                Expand all
+              </Button>
+              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={collapseAll}>
+                Collapse all
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -102,24 +177,63 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
           </div>
         ) : (
           <div className="space-y-2">
-            {entries.map((entry, index) => (
-              <div
-                key={index}
-                className={`font-mono text-sm p-3 rounded ${getEntryStyles(entry.type)}`}
-              >
-                <div className="flex items-start gap-2">
-                  {entry.dataType && (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded shrink-0">
-                      {getTypeIcon(entry.dataType)}
-                      {entry.dataType}
-                    </span>
-                  )}
-                  <pre className="whitespace-pre-wrap break-words flex-1">
-                    {formatContent(entry.content)}
-                  </pre>
+            {entries.map((entry, index) => {
+              const formatted = formatContent(entry.content);
+              const { truncated, isLong } = truncateContent(formatted, TRUNCATE_CHARS, TRUNCATE_LINES);
+              const isExpanded = expanded.has(index);
+              const showFull = !isLong || isExpanded;
+              return (
+                <div
+                  key={index}
+                  className={`font-mono text-sm p-3 rounded ${getEntryStyles(entry.type)}`}
+                >
+                  <div className="flex items-start gap-2">
+                    {entry.dataType && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded shrink-0">
+                        {getTypeIcon(entry.dataType)}
+                        {entry.dataType}
+                      </span>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <pre className="whitespace-pre-wrap break-words">
+                        {showFull ? formatted : truncated}
+                      </pre>
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          onClick={() => copyToClipboard(formatted, 'Entry copied')}
+                          title="Copy"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </Button>
+                        {isLong && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs gap-1"
+                            onClick={() => toggleExpanded(index)}
+                          >
+                            {isExpanded ? (
+                              <>
+                                <ChevronDown className="w-3 h-3" />
+                                Collapse
+                              </>
+                            ) : (
+                              <>
+                                <ChevronRight className="w-3 h-3" />
+                                Expand
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

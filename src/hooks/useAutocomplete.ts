@@ -5,6 +5,8 @@ export interface AutocompleteSuggestion {
   value: unknown;
   type: string;
   displayPath: string;
+  /** When in bracket notation (data["key"), use this for insertion instead of path. */
+  insertPath?: string;
 }
 
 const getType = (value: unknown): string => {
@@ -15,7 +17,7 @@ const getType = (value: unknown): string => {
 
 const getPreview = (value: unknown): string => {
   if (value === null) return 'null';
-  if (typeof value === 'string') return `"${value.slice(0, 20)}${value.length > 20 ? '...' : ''}"`;
+  if (typeof value === 'string') return `"${value.slice(0, 30)}${value.length > 30 ? '...' : ''}"`;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (Array.isArray(value)) return `[${value.length} items]`;
   if (typeof value === 'object') {
@@ -24,6 +26,14 @@ const getPreview = (value: unknown): string => {
   }
   return String(value);
 };
+
+export const CODE_SNIPPETS: AutocompleteSuggestion[] = [
+  { path: 'data.map(item => item)', value: null, type: 'snippet', displayPath: 'Map array' },
+  { path: 'data.filter(item => )', value: null, type: 'snippet', displayPath: 'Filter array' },
+  { path: 'data.reduce((acc, item) => acc + item, 0)', value: null, type: 'snippet', displayPath: 'Reduce' },
+  { path: 'data.forEach(item => console.log(item))', value: null, type: 'snippet', displayPath: 'ForEach + log' },
+  { path: 'console.log(data)', value: null, type: 'snippet', displayPath: 'Log data' },
+];
 
 export const getAllPaths = (obj: unknown, prefix = 'data'): AutocompleteSuggestion[] => {
   const paths: AutocompleteSuggestion[] = [];
@@ -118,12 +128,80 @@ export const useAutocomplete = (jsonData: unknown) => {
   }, [jsonData]);
 
   const findSuggestions = useCallback((code: string, cursorPosition: number) => {
-    // Find the current word/path being typed
     const beforeCursor = code.slice(0, cursorPosition);
-    
-    // Match patterns like "data", "data.", "data.user", "data.user.", "data.posts[0]."
+
+    // Snippet trigger: type "/" to get code snippets
+    const snippetMatch = beforeCursor.match(/\/\s*$/);
+    if (snippetMatch) {
+      const matchStart = cursorPosition - snippetMatch[0].length;
+      setSuggestions(CODE_SNIPPETS);
+      setSelectedIndex(0);
+      setTriggerPosition({ start: matchStart, end: cursorPosition });
+      setIsOpen(true);
+      return;
+    }
+
+    // Bracket notation: data[" or data["key or data[' or data['key
+    const bracketMatch = beforeCursor.match(/(data(?:\.[a-zA-Z_$][\w$]*|\[\d+\])*)\[(["'])([^"']*)?$/);
+    if (bracketMatch) {
+      const [, basePath, quote, partialKey = ''] = bracketMatch;
+      const fullMatch = bracketMatch[0];
+      const matchStart = cursorPosition - fullMatch.length;
+
+      const filtered = allPaths.filter((suggestion) => {
+        if (!suggestion.path.startsWith(basePath)) return false;
+        const remaining = suggestion.path.slice(basePath.length);
+        if (!remaining.startsWith('.') && !remaining.startsWith('[')) return false;
+        const childPart = remaining.startsWith('.') ? remaining.slice(1) : remaining;
+        const immediateChild = childPart.split(/[.\[]/)[0];
+        if (remaining.startsWith('[')) {
+          const numMatch = remaining.match(/^\[(\d+)\]/);
+          if (numMatch) return partialKey === '' || String(numMatch[1]).startsWith(partialKey);
+        }
+        return immediateChild.toLowerCase().startsWith(partialKey.toLowerCase());
+      });
+
+      const uniqueSuggestions = new Map<string, AutocompleteSuggestion>();
+      filtered.forEach((s) => {
+        const remaining = s.path.slice(basePath.length);
+        let key: string;
+        let displayPath: string;
+        if (remaining.startsWith('.')) {
+          const parts = remaining.slice(1).split(/[.\[]/);
+          key = parts[0];
+          displayPath = parts[0];
+        } else {
+          const numMatch = remaining.match(/^\[(\d+)\]/);
+          if (!numMatch) return;
+          key = `[${numMatch[1]}]`;
+          displayPath = key;
+        }
+        const insertPath =
+          key.startsWith('[') ? basePath + key : basePath + '[' + quote + key.replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '\\"' : "\\'") + quote + ']';
+        if (!uniqueSuggestions.has(key)) {
+          uniqueSuggestions.set(key, {
+            ...s,
+            path: basePath + (remaining.startsWith('[') ? key : '.' + key),
+            displayPath,
+            insertPath,
+          });
+        }
+      });
+
+      const finalSuggestions = Array.from(uniqueSuggestions.values());
+      if (finalSuggestions.length > 0) {
+        setSuggestions(finalSuggestions);
+        setSelectedIndex(0);
+        setTriggerPosition({ start: matchStart + basePath.length + 2 + partialKey.length, end: cursorPosition });
+        setIsOpen(true);
+      } else {
+        setIsOpen(false);
+      }
+      return;
+    }
+
+    // Dot notation: "data", "data.", "data.user", "data.user.", "data.posts[0]."
     const pathMatch = beforeCursor.match(/(data(?:\.[a-zA-Z_$][\w$]*|\[\d+\])*)\.?([a-zA-Z_$][\w$]*)?$/);
-    
     if (!pathMatch) {
       setIsOpen(false);
       return;
@@ -131,72 +209,50 @@ export const useAutocomplete = (jsonData: unknown) => {
 
     const [fullMatch, basePath, partialKey = ''] = pathMatch;
     const matchStart = cursorPosition - fullMatch.length;
-    
-    // Filter suggestions based on the base path and partial key
-    const filtered = allPaths.filter(suggestion => {
-      // Check if suggestion starts with the base path
+
+    const filtered = allPaths.filter((suggestion) => {
       if (!suggestion.path.startsWith(basePath)) return false;
-      
-      // Get the remaining part after the base path
       const remaining = suggestion.path.slice(basePath.length);
-      
-      // Should be a direct child (starts with . or [)
       if (!remaining.startsWith('.') && !remaining.startsWith('[')) return false;
-      
-      // Get the immediate child part
       const childPart = remaining.startsWith('.') ? remaining.slice(1) : remaining;
       const immediateChild = childPart.split(/[.\[]/)[0];
-      
-      // Check if it's a direct child and matches the partial key
       if (remaining.startsWith('.')) {
         return immediateChild.toLowerCase().startsWith(partialKey.toLowerCase());
-      } else if (remaining.startsWith('[')) {
-        return partialKey === '' || remaining.startsWith(`[${partialKey}`);
       }
-      
-      return false;
+      return partialKey === '' || remaining.startsWith(`[${partialKey}`);
     });
 
-    // Deduplicate and get only immediate children
     const uniqueSuggestions = new Map<string, AutocompleteSuggestion>();
-    filtered.forEach(s => {
+    filtered.forEach((s) => {
       const remaining = s.path.slice(basePath.length);
       let key: string;
       let displayPath: string;
-      
       if (remaining.startsWith('.')) {
         const parts = remaining.slice(1).split(/[.\[]/);
         key = parts[0];
         displayPath = parts[0];
-      } else if (remaining.startsWith('[')) {
-        const match = remaining.match(/^\[(\d+)\]/);
-        if (match) {
-          key = `[${match[1]}]`;
-          displayPath = key;
-        } else {
-          return;
-        }
       } else {
-        return;
+        const match = remaining.match(/^\[(\d+)\]/);
+        if (!match) return;
+        key = `[${match[1]}]`;
+        displayPath = key;
       }
-      
       if (!uniqueSuggestions.has(key)) {
         uniqueSuggestions.set(key, {
           ...s,
-          path: basePath + (remaining.startsWith('[') ? key : `.${key}`),
+          path: basePath + (remaining.startsWith('[') ? key : '.' + key),
           displayPath,
         });
       }
     });
 
     const finalSuggestions = Array.from(uniqueSuggestions.values());
-    
     if (finalSuggestions.length > 0) {
       setSuggestions(finalSuggestions);
       setSelectedIndex(0);
-      setTriggerPosition({ 
-        start: matchStart + basePath.length + (partialKey ? 1 : 0), 
-        end: cursorPosition 
+      setTriggerPosition({
+        start: matchStart + basePath.length + (partialKey ? 1 : 0),
+        end: cursorPosition,
       });
       setIsOpen(true);
     } else {
