@@ -1,0 +1,165 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 16% 12%;
+    --foreground: 220 14% 90%;
+    --card: 220 16% 14%;
+    --card-foreground: 220 14% 90%;
+    --popover: 220 16% 14%;
+    --popover-foreground: 220 14% 90%;
+    --primary: 199 89% 48%;
+    --primary-foreground: 220 16% 8%;
+    --secondary: 220 16% 18%;
+    --secondary-foreground: 220 14% 85%;
+    --muted: 220 16% 20%;
+    --muted-foreground: 220 14% 55%;
+    --accent: 265 89% 66%;
+    --accent-foreground: 220 14% 95%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --success: 142 71% 45%;
+    --success-foreground: 142 71% 95%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 10%;
+    --border: 220 16% 22%;
+    --input: 220 16% 18%;
+    --ring: 199 89% 48%;
+    --radius: 0.5rem;
+
+    /* Code Editor Tokens */
+    --code-string: 142 71% 55%;
+    --code-number: 38 92% 60%;
+    --code-keyword: 199 89% 60%;
+    --code-property: 265 89% 70%;
+    --code-bracket: 220 14% 65%;
+    --code-line-number: 220 14% 40%;
+    --code-cursor: 199 89% 60%;
+
+    /* Editor specific */
+    --editor-bg: 220 16% 10%;
+    --editor-gutter: 220 16% 14%;
+    --editor-line-active: 220 16% 15%;
+
+    /* Sidebar */
+    --sidebar-background: 220 16% 14%;
+    --sidebar-foreground: 220 14% 85%;
+    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 16% 20%;
+    --sidebar-accent-foreground: 220 14% 90%;
+    --sidebar-border: 220 16% 22%;
+    --sidebar-ring: 199 89% 48%;
+  }
+
+  .dark {
+    --background: 220 16% 12%;
+    --foreground: 220 14% 90%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+  }
+  
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom Scrollbar for Editor */
+.editor-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.editor-scrollbar::-webkit-scrollbar-track {
+  background: hsl(var(--editor-bg));
+}
+
+.editor-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+
+.editor-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Code highlighting classes */
+.code-string {
+  color: hsl(var(--code-string));
+}
+
+.code-number {
+  color: hsl(var(--code-number));
+}
+
+.code-keyword {
+  color: hsl(var(--code-keyword));
+}
+
+.code-property {
+  color: hsl(var(--code-property));
+}
+
+.code-bracket {
+  color: hsl(var(--code-bracket));
+}
+
+/* Textarea styling */
+.code-textarea {
+  @apply font-mono text-sm leading-relaxed;
+  tab-size: 2;
+  -moz-tab-size: 2;
+}
+
+.code-textarea::selection {
+  background: hsl(var(--primary) / 0.3);
+}
+
+/* Panel styling */
+.panel-header {
+  @apply flex items-center justify-between px-4 py-2 border-b border-border bg-secondary/50;
+}
+
+.panel-title {
+  @apply text-sm font-medium text-muted-foreground uppercase tracking-wider;
+}
+
+/* Status indicators */
+.status-valid {
+  @apply text-success;
+}
+
+.status-invalid {
+  @apply text-destructive;
+}
+
+/* Resizer styling */
+.resizer {
+  @apply bg-border hover:bg-primary/50 transition-colors;
+}
+
+/* Animation for run button */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px 4px hsl(var(--primary) / 0.2);
+  }
+}
+
+.run-button:hover {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
