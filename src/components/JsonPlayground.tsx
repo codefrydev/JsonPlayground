@@ -24,6 +24,7 @@ import JsonTree from './JsonTree';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useToast } from '@/hooks/use-toast';
 import { CODE_SNIPPETS } from '@/hooks/useAutocomplete';
+import Queryable from '@/lib/Queryable';
 
 const DEFAULT_JSON = `{
   "user": {
@@ -44,7 +45,9 @@ const DEFAULT_JSON = `{
 const DEFAULT_CODE = `// Use Dump(value) to see output. Multi-line code is supported.
 const names = data.posts.map(p => p.title);
 Dump(names);
-Dump(data.user);`;
+Dump(data.user);
+// LINQ-style (C#-friendly):
+Dump(Queryable.From(data.posts).Where(p => p.id).ToArray());`;
 
 const getDataType = (value: unknown): string => {
   if (value === null) return 'null';
@@ -282,8 +285,8 @@ const JsonPlayground: React.FC = () => {
         };
         setTimeout(() => {
           try {
-            const fn = new Function('data', 'console', 'Dump', `"use strict";\n${cleanCode}`) as (d: unknown, c: typeof customConsole, Dump: (...args: unknown[]) => void) => void;
-            fn(data, customConsole, Dump);
+            const fn = new Function('data', 'console', 'Dump', 'Queryable', `"use strict";\n${cleanCode}`) as (d: unknown, c: typeof customConsole, Dump: (...args: unknown[]) => void, Q: unknown) => void;
+            fn(data, customConsole, Dump, Queryable);
 
             const endTime = performance.now();
             if (executionTimedOutRef.current) return;
@@ -358,13 +361,14 @@ const JsonPlayground: React.FC = () => {
       const hasExplicitReturn = cleanCode.includes('return');
       const multiResult = !hasExplicitReturn && lines.length > 1;
 
-      let fn: (d: unknown, c: typeof customConsole) => unknown;
+      type ExecFn = (d: unknown, c: typeof customConsole, Q: unknown) => unknown;
+      let fn: ExecFn;
       if (hasExplicitReturn) {
-        fn = new Function('data', 'console', `"use strict";\n${cleanCode}`) as (d: unknown, c: typeof customConsole) => unknown;
+        fn = new Function('data', 'console', 'Queryable', `"use strict";\n${cleanCode}`) as ExecFn;
       } else if (lines.length === 1) {
-        fn = new Function('data', 'console', `"use strict";\nreturn (${lines[0]})`) as (d: unknown, c: typeof customConsole) => unknown;
+        fn = new Function('data', 'console', 'Queryable', `"use strict";\nreturn (${lines[0]})`) as ExecFn;
       } else {
-        fn = new Function('data', 'console', `"use strict";\nreturn (undefined)`) as (d: unknown, c: typeof customConsole) => unknown;
+        fn = new Function('data', 'console', 'Queryable', `"use strict";\nreturn (undefined)`) as ExecFn;
       }
 
       setTimeout(() => {
@@ -373,11 +377,11 @@ const JsonPlayground: React.FC = () => {
           if (multiResult) {
             results = [];
             for (const line of lines) {
-              const lineFn = new Function('data', 'console', `"use strict"; return (${line})`) as (d: unknown, c: typeof customConsole) => unknown;
-              results.push(lineFn(data, customConsole));
+              const lineFn = new Function('data', 'console', 'Queryable', `"use strict"; return (${line})`) as ExecFn;
+              results.push(lineFn(data, customConsole, Queryable));
             }
           } else {
-            const single = fn(data, customConsole);
+            const single = fn(data, customConsole, Queryable);
             results = single !== undefined ? [single] : [];
           }
 

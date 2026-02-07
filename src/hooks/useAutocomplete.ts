@@ -100,6 +100,13 @@ export const CODE_SNIPPETS: AutocompleteSuggestion[] = [
   // Structure helpers
   { path: 'Dump(JSON.stringify(data, null, 2))', value: null, type: 'snippet', displayPath: 'Pretty-print JSON string' },
   { path: 'const flat = data.posts.flatMap(p => [p.id, p.title]);\nDump(flat)', value: null, type: 'snippet', displayPath: 'FlatMap: flatten id + title' },
+  // LINQ-style (Queryable)
+  { path: 'const result = Queryable.From(data.posts).Where(p => p.id > 0).Select(p => p.title).ToArray();\nDump(result)', value: null, type: 'snippet', displayPath: 'LINQ: Where + Select' },
+  { path: 'const result = Queryable.From(data.posts).OrderBy(p => p.title).ToArray();\nDump(result)', value: null, type: 'snippet', displayPath: 'LINQ: OrderBy' },
+  { path: 'const result = Queryable.From(data.posts).OrderByDescending(p => p.id).ToArray();\nDump(result)', value: null, type: 'snippet', displayPath: 'LINQ: OrderByDescending' },
+  { path: 'const groups = Queryable.From(data.posts).GroupBy(p => p.category);\nDump(Object.fromEntries(groups))', value: null, type: 'snippet', displayPath: 'LINQ: GroupBy' },
+  { path: 'const result = Queryable.From(data.posts).Take(5).ToArray();\nDump(result)', value: null, type: 'snippet', displayPath: 'LINQ: Take' },
+  { path: 'const result = Queryable.From(data.posts).Skip(1).Take(2).ToArray();\nDump(result)', value: null, type: 'snippet', displayPath: 'LINQ: Skip + Take' },
 ];
 
 export const getAllPaths = (obj: unknown, prefix = 'data'): AutocompleteSuggestion[] => {

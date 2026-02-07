@@ -138,11 +138,11 @@ const TreeNode: React.FC<TreeNodeProps> = ({
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="font-mono text-sm" style={{ paddingLeft }}>
+      <div className="font-mono text-sm group flex items-center rounded hover:bg-muted/50" style={{ paddingLeft }}>
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-muted/50 w-full text-left group"
+            className="flex flex-1 min-w-0 items-center gap-1.5 py-0.5 px-1 rounded text-left"
           >
             <span className="shrink-0 w-4 flex items-center justify-center">
               {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
@@ -152,20 +152,21 @@ const TreeNode: React.FC<TreeNodeProps> = ({
             <span className="text-muted-foreground">
               {isArray ? `[${(value as unknown[]).length} items]` : `{${Object.keys(value as object).length} keys}`}
             </span>
-            <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy} title="Copy path">
-                <Copy className="w-3 h-3" />
-              </Button>
-              {onInsertPath && (
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleInsert} title="Use in code">
-                  <Code2 className="w-3 h-3" />
-                </Button>
-              )}
-            </div>
           </button>
         </CollapsibleTrigger>
-        <CollapsibleContent>
-          {isArray
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 shrink-0 py-0.5 pr-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy} title="Copy path">
+            <Copy className="w-3 h-3" />
+          </Button>
+          {onInsertPath && (
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleInsert} title="Use in code">
+              <Code2 className="w-3 h-3" />
+            </Button>
+          )}
+        </div>
+      </div>
+      <CollapsibleContent>
+        {isArray
             ? (value as unknown[]).map((item, index) => (
                 <TreeNode
                   key={`${path}[${index}]`}
@@ -190,8 +191,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
                   defaultOpen={depth === 0}
                 />
               ))}
-        </CollapsibleContent>
-      </div>
+      </CollapsibleContent>
     </Collapsible>
   );
 };
