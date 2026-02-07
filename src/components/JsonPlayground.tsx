@@ -11,11 +11,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Play, Trash2, FileJson, Code2, Terminal, Zap, FileCode, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2 } from 'lucide-react';
+import { Play, Trash2, FileJson, Code2, Terminal, Zap, FileCode, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2, LayoutGrid, PanelRightClose, PanelLeftClose } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import JsonEditor from './JsonEditor';
 import PanelHeader from './PanelHeader';
@@ -25,6 +26,16 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useToast } from '@/hooks/use-toast';
 import { CODE_SNIPPETS } from '@/hooks/useAutocomplete';
 import Queryable from '@/lib/Queryable';
+import type { PanelId, LayoutMode } from '@/lib/playground-types';
+
+const LAYOUT_OPTIONS: { value: LayoutMode; label: string; title: string }[] = [
+  { value: 'horizontal', label: 'Row', title: 'All panels in one row' },
+  { value: 'vertical', label: 'Stack', title: 'Panels stacked vertically' },
+  { value: 'split-left', label: '2 left | 1 right', title: 'Two panels left, one right' },
+  { value: 'split-right', label: '1 left | 2 right', title: 'One left, two panels right' },
+  { value: 'top-bottom', label: '2 top, 1 bottom', title: 'Two on top row, one below' },
+  { value: 'bottom-top', label: '1 top, 2 bottom', title: 'One on top, two on bottom row' },
+];
 
 const DEFAULT_JSON = `{
   "user": {
@@ -45,9 +56,8 @@ const DEFAULT_JSON = `{
 const DEFAULT_CODE = `// Use Dump(value) to see output. Multi-line code is supported.
 const names = data.posts.map(p => p.title);
 Dump(names);
-Dump(data.user);
 // LINQ-style (C#-friendly):
-Dump(Queryable.From(data.posts).Where(p => p.id).ToArray());`;
+Dump(Queryable.From(data.posts).Where(p => p.id==1).ToArray());`;
 
 const getDataType = (value: unknown): string => {
   if (value === null) return 'null';
@@ -72,8 +82,68 @@ const getDataShape = (data: unknown): string => {
 
 const STORAGE_KEY = 'json-playground-state';
 const JSON_PANEL_TAB_KEY = 'json-playground-json-panel-tab';
+const PANEL_ORDER_KEY = 'json-playground-panel-order';
+const LAYOUT_MODE_KEY = 'json-playground-layout-mode';
+const COLLAPSED_PANELS_KEY = 'json-playground-collapsed-panels';
 const SHARE_PARAM = 's';
 const MAX_SHARE_LENGTH = 1800;
+
+const PANEL_LABELS: Record<PanelId, string> = {
+  json: 'JSON Data',
+  code: 'Code Editor',
+  output: 'Output',
+};
+
+function loadCollapsedPanels(): PanelId[] {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_PANELS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((id): id is PanelId => VALID_PANEL_IDS.includes(id as PanelId));
+  } catch {
+    return [];
+  }
+}
+
+export type { PanelId, LayoutMode } from '@/lib/playground-types';
+
+const DEFAULT_PANEL_ORDER: PanelId[] = ['json', 'code', 'output'];
+const VALID_PANEL_IDS: PanelId[] = ['json', 'code', 'output'];
+
+function loadPanelOrder(): PanelId[] {
+  try {
+    const raw = localStorage.getItem(PANEL_ORDER_KEY);
+    if (!raw) return [...DEFAULT_PANEL_ORDER];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length !== 3) return [...DEFAULT_PANEL_ORDER];
+    const order = parsed.filter((id): id is PanelId => VALID_PANEL_IDS.includes(id as PanelId));
+    if (order.length !== 3) return [...DEFAULT_PANEL_ORDER];
+    const seen = new Set<PanelId>();
+    for (const id of order) {
+      if (seen.has(id)) return [...DEFAULT_PANEL_ORDER];
+      seen.add(id);
+    }
+    return order;
+  } catch {
+    return [...DEFAULT_PANEL_ORDER];
+  }
+}
+
+const VALID_LAYOUT_MODES: LayoutMode[] = [
+  'horizontal', 'vertical', 'split-left', 'split-right', 'top-bottom', 'bottom-top',
+];
+
+function loadLayoutMode(): LayoutMode {
+  try {
+    const saved = localStorage.getItem(LAYOUT_MODE_KEY);
+    if (saved === 'split') return 'split-left'; // migrate old value
+    if (saved && VALID_LAYOUT_MODES.includes(saved as LayoutMode)) return saved as LayoutMode;
+    return 'split-right'; // default: one left, two right
+  } catch {
+    return 'split-right';
+  }
+}
 
 function loadSavedState(): { json: string; code: string } | null {
   try {
@@ -118,6 +188,16 @@ const JsonPlayground: React.FC = () => {
   const [insertIntoCode, setInsertIntoCode] = useState<string | null>(null);
   const [loadUrlOpen, setLoadUrlOpen] = useState(false);
   const [loadUrlValue, setLoadUrlValue] = useState('');
+  const [panelOrder, setPanelOrder] = useState<PanelId[]>(loadPanelOrder);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(loadLayoutMode);
+  const [collapsedPanels, setCollapsedPanels] = useState<Set<PanelId>>(
+    () => new Set(loadCollapsedPanels())
+  );
+  const panelRefs = useRef<Record<PanelId, { collapse: () => void; expand: (minSize?: number) => void } | null>>({
+    json: null,
+    code: null,
+    output: null,
+  });
   const { toast } = useToast();
   const executionRunIdRef = useRef(0);
   const executionTimedOutRef = useRef(false);
@@ -177,6 +257,30 @@ const JsonPlayground: React.FC = () => {
   useEffect(() => {
     debouncedSave();
   }, [jsonInput, codeInput, debouncedSave]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PANEL_ORDER_KEY, JSON.stringify(panelOrder));
+    } catch {
+      /* ignore */
+    }
+  }, [panelOrder]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAYOUT_MODE_KEY, layoutMode);
+    } catch {
+      /* ignore */
+    }
+  }, [layoutMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSED_PANELS_KEY, JSON.stringify([...collapsedPanels]));
+    } catch {
+      /* ignore */
+    }
+  }, [collapsedPanels]);
 
   // Keep parsed JSON data in sync for autocomplete
   useEffect(() => {
@@ -615,6 +719,258 @@ const JsonPlayground: React.FC = () => {
     }
   }, [toast]);
 
+  const panelStorage = useCallback((suffix: string) => ({
+    getItem: (name: string) => {
+      try {
+        return localStorage.getItem(`json-playground-layout-${suffix}-${name}`) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    setItem: (name: string, value: string) => {
+      try {
+        localStorage.setItem(`json-playground-layout-${suffix}-${name}`, value);
+      } catch {
+        /* ignore */
+      }
+    },
+  }), []);
+
+  type PanelActions = {
+    isCollapsed: boolean;
+    onCollapse: () => void;
+    onExpand: () => void;
+  };
+
+  useEffect(() => {
+    collapsedPanels.forEach((id) => panelRefs.current[id]?.collapse());
+  }, [collapsedPanels]);
+
+  const expandPanel = useCallback((id: PanelId) => {
+    setCollapsedPanels((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    requestAnimationFrame(() => panelRefs.current[id]?.expand());
+  }, []);
+
+  const getPanelActions = useCallback((id: PanelId): PanelActions => ({
+    isCollapsed: collapsedPanels.has(id),
+    onCollapse: () => setCollapsedPanels((prev) => new Set(prev).add(id)),
+    onExpand: () => expandPanel(id),
+  }), [collapsedPanels, expandPanel]);
+
+  const renderPanelContent = useCallback((id: PanelId, panelActions: PanelActions) => {
+    if (panelActions.isCollapsed) {
+      return <div className="h-full min-h-0" aria-hidden />;
+    }
+    switch (id) {
+      case 'json':
+        return (
+          <div className="h-full flex flex-col border-r border-border">
+            <PanelHeader
+              title="JSON Data"
+              status={jsonStatus.valid ? 'valid' : 'invalid'}
+              statusText={
+                jsonStatus.valid ? '✓ Valid' : `✗ ${jsonStatus.error?.split(':')[0]}`
+              }
+              actions={
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={panelActions.onCollapse} title="Hide panel">
+                    <PanelRightClose className="w-3.5 h-3.5" />
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+                  <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={loadFromFile} title="Load from file">
+                    <Upload className="w-3.5 h-3.5" />
+                    Load file
+                  </Button>
+                  <Dialog open={loadUrlOpen} onOpenChange={setLoadUrlOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" title="Load from URL">
+                        <Link className="w-3.5 h-3.5" />
+                        Load URL
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Load JSON from URL</DialogTitle>
+                      </DialogHeader>
+                      <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor="load-url">URL</Label>
+                          <Input
+                            id="load-url"
+                            placeholder="https://example.com/data.json"
+                            value={loadUrlValue}
+                            onChange={(e) => setLoadUrlValue(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && loadFromUrl()}
+                          />
+                        </div>
+                        <Button onClick={loadFromUrl}>Load</Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                  <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={formatJson} title="Format JSON">
+                    <AlignLeft className="w-3.5 h-3.5" />
+                    Format
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={minifyJson} title="Minify JSON">
+                    <Minus className="w-3.5 h-3.5" />
+                    Minify
+                  </Button>
+                  <Tabs
+                    value={jsonPanelTab}
+                    onValueChange={(v) => {
+                      const tab = v as 'editor' | 'tree';
+                      setJsonPanelTab(tab);
+                      try {
+                        localStorage.setItem(JSON_PANEL_TAB_KEY, tab);
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                    className="w-auto"
+                  >
+                    <TabsList className="h-8">
+                      <TabsTrigger value="editor" className="gap-1.5 text-xs px-2">
+                        <FileCode className="w-3.5 h-3.5" />
+                        Editor
+                      </TabsTrigger>
+                      <TabsTrigger value="tree" className="gap-1.5 text-xs px-2" disabled={!jsonStatus.valid}>
+                        <GitBranch className="w-3.5 h-3.5" />
+                        Tree
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </div>
+              }
+            />
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+              {jsonPanelTab === 'editor' ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <JsonEditor
+                    value={jsonInput}
+                    onChange={handleJsonChange}
+                    placeholder="Enter your JSON here..."
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 min-h-0 overflow-auto">
+                  <JsonTree
+                    data={parsedJsonData}
+                    onInsertPath={(path) => setInsertIntoCode(path)}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      case 'code':
+        return (
+          <div className="h-full flex flex-col border-r border-border">
+            <PanelHeader
+              title="Code Editor"
+              statusText="JavaScript"
+              actions={
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={panelActions.onCollapse} title="Hide panel">
+                    <PanelRightClose className="w-3.5 h-3.5" />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" title="Insert snippet">
+                        <ListOrdered className="w-3.5 h-3.5" />
+                        Snippets
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      {CODE_SNIPPETS.map((snippet) => (
+                        <DropdownMenuItem
+                          key={snippet.path}
+                          onClick={() => setInsertIntoCode(snippet.path)}
+                        >
+                          {snippet.displayPath}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Code2 className="w-3.5 h-3.5 text-muted-foreground" />
+                </div>
+              }
+            />
+            <div className="flex-1 overflow-hidden">
+              <CodeEditor
+                value={codeInput}
+                onChange={setCodeInput}
+                placeholder="Write your code here..."
+                language="javascript"
+                jsonData={parsedJsonData}
+                enableAutocomplete={true}
+                insertText={insertIntoCode}
+                onInsertDone={() => setInsertIntoCode(null)}
+              />
+            </div>
+          </div>
+        );
+      case 'output':
+        return (
+          <div className="h-full flex flex-col">
+            <PanelHeader
+              title="Output"
+              actions={
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={panelActions.onCollapse} title="Hide panel">
+                    <PanelRightClose className="w-3.5 h-3.5" />
+                  </Button>
+                  <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
+                </div>
+              }
+            />
+            <div className="flex-1 overflow-hidden">
+              <OutputPanel
+                entries={output}
+                meta={meta}
+                isExecuting={isExecuting}
+              />
+            </div>
+          </div>
+        );
+    }
+  }, [
+    collapsedPanels,
+    getPanelActions,
+    jsonStatus.valid,
+    jsonStatus.error,
+    jsonPanelTab,
+    jsonInput,
+    loadUrlOpen,
+    loadUrlValue,
+    codeInput,
+    insertIntoCode,
+    output,
+    meta,
+    isExecuting,
+    handleJsonChange,
+    loadFromFile,
+    handleFileChange,
+    loadFromUrl,
+    setLoadUrlOpen,
+    setLoadUrlValue,
+    formatJson,
+    minifyJson,
+    setJsonPanelTab,
+    parsedJsonData,
+    setCodeInput,
+    setInsertIntoCode,
+  ]);
+
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
@@ -637,6 +993,40 @@ const JsonPlayground: React.FC = () => {
           </div>
         )}
         <div className="flex shrink-0 items-center gap-3">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2" title="Panel layout" aria-label="Panel layout">
+                <LayoutGrid className="w-4 h-4" />
+                Layout
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              {LAYOUT_OPTIONS.map((opt) => (
+                <DropdownMenuItem
+                  key={opt.value}
+                  onClick={() => setLayoutMode(opt.value)}
+                  title={opt.title}
+                >
+                  {opt.label}
+                </DropdownMenuItem>
+              ))}
+              {collapsedPanels.size > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  {([...collapsedPanels]).map((id) => (
+                    <DropdownMenuItem
+                      key={id}
+                      onClick={() => expandPanel(id)}
+                      title={`Show ${PANEL_LABELS[id]} panel`}
+                    >
+                      <PanelLeftClose className="w-3.5 h-3.5 mr-2" />
+                      Show {PANEL_LABELS[id]}
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant={autoRun ? 'default' : 'outline'}
             size="sm"
@@ -670,184 +1060,246 @@ const JsonPlayground: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-hidden">
-        <ResizablePanelGroup direction="horizontal">
-          {/* Left Side - JSON & Code */}
-          <ResizablePanel defaultSize={50} minSize={30}>
-            <ResizablePanelGroup direction="vertical">
-              {/* JSON Panel */}
-              <ResizablePanel defaultSize={50} minSize={20}>
-                <div className="h-full flex flex-col border-r border-border">
-                  <PanelHeader
-                    title="JSON Data"
-                    status={jsonStatus.valid ? 'valid' : 'invalid'}
-                    statusText={
-                      jsonStatus.valid ? '✓ Valid' : `✗ ${jsonStatus.error?.split(':')[0]}`
-                    }
-                    actions={
-                      <div className="flex items-center gap-2">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept=".json,application/json"
-                          className="hidden"
-                          onChange={handleFileChange}
-                        />
-                        <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={loadFromFile} title="Load from file">
-                          <Upload className="w-3.5 h-3.5" />
-                          Load file
-                        </Button>
-                        <Dialog open={loadUrlOpen} onOpenChange={setLoadUrlOpen}>
-                          <DialogTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" title="Load from URL">
-                              <Link className="w-3.5 h-3.5" />
-                              Load URL
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Load JSON from URL</DialogTitle>
-                            </DialogHeader>
-                            <div className="grid gap-4 py-4">
-                              <div className="grid gap-2">
-                                <Label htmlFor="load-url">URL</Label>
-                                <Input
-                                  id="load-url"
-                                  placeholder="https://example.com/data.json"
-                                  value={loadUrlValue}
-                                  onChange={(e) => setLoadUrlValue(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && loadFromUrl()}
-                                />
-                              </div>
-                              <Button onClick={loadFromUrl}>Load</Button>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-                        <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={formatJson} title="Format JSON">
-                          <AlignLeft className="w-3.5 h-3.5" />
-                          Format
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={minifyJson} title="Minify JSON">
-                          <Minus className="w-3.5 h-3.5" />
-                          Minify
-                        </Button>
-                        <Tabs
-                          value={jsonPanelTab}
-                          onValueChange={(v) => {
-                            const tab = v as 'editor' | 'tree';
-                            setJsonPanelTab(tab);
-                            try {
-                              localStorage.setItem(JSON_PANEL_TAB_KEY, tab);
-                            } catch {
-                              /* ignore */
-                            }
-                          }}
-                          className="w-auto"
-                        >
-                          <TabsList className="h-8">
-                            <TabsTrigger value="editor" className="gap-1.5 text-xs px-2">
-                              <FileCode className="w-3.5 h-3.5" />
-                              Editor
-                            </TabsTrigger>
-                            <TabsTrigger value="tree" className="gap-1.5 text-xs px-2" disabled={!jsonStatus.valid}>
-                              <GitBranch className="w-3.5 h-3.5" />
-                              Tree
-                            </TabsTrigger>
-                          </TabsList>
-                        </Tabs>
-                      </div>
-                    }
-                  />
-                  <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-                    {jsonPanelTab === 'editor' ? (
-                      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                        <JsonEditor
-                          value={jsonInput}
-                          onChange={handleJsonChange}
-                          placeholder="Enter your JSON here..."
-                        />
-                      </div>
-                    ) : (
-                      <div className="flex-1 min-h-0 overflow-auto">
-                        <JsonTree
-                          data={parsedJsonData}
-                          onInsertPath={(path) => setInsertIntoCode(path)}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </ResizablePanel>
-
-              <ResizableHandle className="resizer h-1" />
-
-              {/* Code Panel */}
-              <ResizablePanel defaultSize={50} minSize={20}>
-                <div className="h-full flex flex-col border-r border-border">
-                  <PanelHeader
-                    title="Code Editor"
-                    statusText="JavaScript"
-                    actions={
-                      <div className="flex items-center gap-2">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" title="Insert snippet">
-                              <ListOrdered className="w-3.5 h-3.5" />
-                              Snippets
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-56">
-                            {CODE_SNIPPETS.map((snippet) => (
-                              <DropdownMenuItem
-                                key={snippet.path}
-                                onClick={() => setInsertIntoCode(snippet.path)}
-                              >
-                                {snippet.displayPath}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                        <Code2 className="w-3.5 h-3.5 text-muted-foreground" />
-                      </div>
-                    }
-                  />
-                  <div className="flex-1 overflow-hidden">
-                    <CodeEditor
-                      value={codeInput}
-                      onChange={setCodeInput}
-                      placeholder="Write your code here..."
-                      language="javascript"
-                      jsonData={parsedJsonData}
-                      enableAutocomplete={true}
-                      insertText={insertIntoCode}
-                      onInsertDone={() => setInsertIntoCode(null)}
-                    />
-                  </div>
-                </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </ResizablePanel>
-
-          <ResizableHandle className="resizer w-1" />
-
-          {/* Right Side - Output */}
-          <ResizablePanel defaultSize={50} minSize={25}>
-            <div className="h-full flex flex-col">
-              <PanelHeader
-                title="Output"
-                actions={<Terminal className="w-3.5 h-3.5 text-muted-foreground" />}
-              />
-              <div className="flex-1 overflow-hidden">
-                <OutputPanel 
-                  entries={output} 
-                  meta={meta}
-                  isExecuting={isExecuting}
-                />
-              </div>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+      {/* Main Content: panels in user order — layout matches selected mode */}
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        {layoutMode === 'horizontal' && (
+          <ResizablePanelGroup
+            direction="horizontal"
+            id="playground-horizontal"
+            storage={panelStorage('horizontal')}
+          >
+            {panelOrder.map((id, i) => (
+              <React.Fragment key={id}>
+                <ResizablePanel
+                  ref={(r) => { if (r) panelRefs.current[id] = r; }}
+                  id={id}
+                  order={i + 1}
+                  defaultSize={100 / 3}
+                  minSize={20}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  {renderPanelContent(id, getPanelActions(id))}
+                </ResizablePanel>
+                {i < panelOrder.length - 1 && <ResizableHandle className="resizer w-1" />}
+              </React.Fragment>
+            ))}
+          </ResizablePanelGroup>
+        )}
+        {layoutMode === 'vertical' && (
+          <ResizablePanelGroup
+            direction="vertical"
+            id="playground-vertical"
+            storage={panelStorage('vertical')}
+          >
+            {panelOrder.map((id, i) => (
+              <React.Fragment key={id}>
+                <ResizablePanel
+                  ref={(r) => { if (r) panelRefs.current[id] = r; }}
+                  id={id}
+                  order={i + 1}
+                  defaultSize={100 / 3}
+                  minSize={15}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  {renderPanelContent(id, getPanelActions(id))}
+                </ResizablePanel>
+                {i < panelOrder.length - 1 && <ResizableHandle className="resizer h-1" />}
+              </React.Fragment>
+            ))}
+          </ResizablePanelGroup>
+        )}
+        {layoutMode === 'split-left' && (
+          <ResizablePanelGroup
+            direction="horizontal"
+            id="playground-split-left-root"
+            storage={panelStorage('split-left-root')}
+          >
+            <ResizablePanel id="split-left-group" order={1} defaultSize={50} minSize={30}>
+              <ResizablePanelGroup
+                direction="vertical"
+                id="playground-split-left"
+                storage={panelStorage('split-left')}
+              >
+                {panelOrder.slice(0, 2).map((id, i) => (
+                  <React.Fragment key={id}>
+                    <ResizablePanel
+                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
+                      id={id}
+                      order={i + 1}
+                      defaultSize={50}
+                      minSize={20}
+                      collapsible
+                      collapsedSize={0}
+                    >
+                      {renderPanelContent(id, getPanelActions(id))}
+                    </ResizablePanel>
+                    {i === 0 && <ResizableHandle className="resizer h-1" />}
+                  </React.Fragment>
+                ))}
+              </ResizablePanelGroup>
+            </ResizablePanel>
+            <ResizableHandle className="resizer w-1" />
+            <ResizablePanel
+              ref={(r) => { if (r) panelRefs.current[panelOrder[2]] = r; }}
+              id={panelOrder[2]}
+              order={2}
+              defaultSize={50}
+              minSize={25}
+              collapsible
+              collapsedSize={0}
+            >
+              {renderPanelContent(panelOrder[2], getPanelActions(panelOrder[2]))}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
+        {layoutMode === 'split-right' && (
+          <ResizablePanelGroup
+            direction="horizontal"
+            id="playground-split-right-root"
+            storage={panelStorage('split-right-root')}
+          >
+            <ResizablePanel
+              ref={(r) => { if (r) panelRefs.current[panelOrder[0]] = r; }}
+              id={panelOrder[0]}
+              order={1}
+              defaultSize={50}
+              minSize={25}
+              collapsible
+              collapsedSize={0}
+            >
+              {renderPanelContent(panelOrder[0], getPanelActions(panelOrder[0]))}
+            </ResizablePanel>
+            <ResizableHandle className="resizer w-1" />
+            <ResizablePanel id="split-right-group" order={2} defaultSize={50} minSize={30}>
+              <ResizablePanelGroup
+                direction="vertical"
+                id="playground-split-right"
+                storage={panelStorage('split-right')}
+              >
+                {panelOrder.slice(1, 3).map((id, i) => (
+                  <React.Fragment key={id}>
+                    <ResizablePanel
+                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
+                      id={id}
+                      order={i + 1}
+                      defaultSize={50}
+                      minSize={20}
+                      collapsible
+                      collapsedSize={0}
+                    >
+                      {renderPanelContent(id, getPanelActions(id))}
+                    </ResizablePanel>
+                    {i === 0 && <ResizableHandle className="resizer h-1" />}
+                  </React.Fragment>
+                ))}
+              </ResizablePanelGroup>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
+        {layoutMode === 'top-bottom' && (
+          <ResizablePanelGroup
+            direction="vertical"
+            id="playground-top-bottom-root"
+            storage={panelStorage('top-bottom-root')}
+          >
+            <ResizablePanel id="top-group" order={1} defaultSize={50} minSize={30}>
+              <ResizablePanelGroup
+                direction="horizontal"
+                id="playground-top-bottom-top"
+                storage={panelStorage('top-bottom-top')}
+              >
+                <ResizablePanel
+                  ref={(r) => { if (r) panelRefs.current[panelOrder[0]] = r; }}
+                  id={panelOrder[0]}
+                  order={1}
+                  defaultSize={50}
+                  minSize={20}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  {renderPanelContent(panelOrder[0], getPanelActions(panelOrder[0]))}
+                </ResizablePanel>
+                <ResizableHandle className="resizer w-1" />
+                <ResizablePanel
+                  ref={(r) => { if (r) panelRefs.current[panelOrder[1]] = r; }}
+                  id={panelOrder[1]}
+                  order={2}
+                  defaultSize={50}
+                  minSize={20}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  {renderPanelContent(panelOrder[1], getPanelActions(panelOrder[1]))}
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </ResizablePanel>
+            <ResizableHandle className="resizer h-1" />
+            <ResizablePanel
+              ref={(r) => { if (r) panelRefs.current[panelOrder[2]] = r; }}
+              id={panelOrder[2]}
+              order={2}
+              defaultSize={50}
+              minSize={25}
+              collapsible
+              collapsedSize={0}
+            >
+              {renderPanelContent(panelOrder[2], getPanelActions(panelOrder[2]))}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
+        {layoutMode === 'bottom-top' && (
+          <ResizablePanelGroup
+            direction="vertical"
+            id="playground-bottom-top-root"
+            storage={panelStorage('bottom-top-root')}
+          >
+            <ResizablePanel
+              ref={(r) => { if (r) panelRefs.current[panelOrder[0]] = r; }}
+              id={panelOrder[0]}
+              order={1}
+              defaultSize={50}
+              minSize={25}
+              collapsible
+              collapsedSize={0}
+            >
+              {renderPanelContent(panelOrder[0], getPanelActions(panelOrder[0]))}
+            </ResizablePanel>
+            <ResizableHandle className="resizer h-1" />
+            <ResizablePanel id="bottom-group" order={2} defaultSize={50} minSize={30}>
+              <ResizablePanelGroup
+                direction="horizontal"
+                id="playground-bottom-top-bottom"
+                storage={panelStorage('bottom-top-bottom')}
+              >
+                <ResizablePanel
+                  ref={(r) => { if (r) panelRefs.current[panelOrder[1]] = r; }}
+                  id={panelOrder[1]}
+                  order={1}
+                  defaultSize={50}
+                  minSize={20}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  {renderPanelContent(panelOrder[1], getPanelActions(panelOrder[1]))}
+                </ResizablePanel>
+                <ResizableHandle className="resizer w-1" />
+                <ResizablePanel
+                  ref={(r) => { if (r) panelRefs.current[panelOrder[2]] = r; }}
+                  id={panelOrder[2]}
+                  order={2}
+                  defaultSize={50}
+                  minSize={20}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  {renderPanelContent(panelOrder[2], getPanelActions(panelOrder[2]))}
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
       </div>
     </div>
   );
