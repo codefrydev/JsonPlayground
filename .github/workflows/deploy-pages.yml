@@ -31,6 +31,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # App is served at https://codefrydev.in/JsonPlayground/ (repo name = JsonPlayground)
       - name: Build static site
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
@@ -39,9 +40,12 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
+      # Unique name per run avoids cross-run collisions; if deploy fails with "Multiple artifacts",
+      # that's upload-pages-artifact retry bug (issue #97) — re-run the workflow from Actions tab.
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: github-pages-${{ github.run_id }}
           path: "./dist"
 
   deploy:
@@ -54,3 +58,5 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_id }}
