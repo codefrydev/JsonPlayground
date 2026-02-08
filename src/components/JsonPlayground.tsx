@@ -13,9 +13,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Play, Trash2, FileJson, Code2, Terminal, Zap, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2, PanelRightClose, Plus, X } from 'lucide-react';
+import { Play, Trash2, FileJson, Code2, Terminal, Zap, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2, Plus, X } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import JsonEditor from './JsonEditor';
 import PanelHeader from './PanelHeader';
@@ -977,9 +978,6 @@ const JsonPlayground: React.FC = () => {
               statusText={jsonStatus.valid ? '✓ Valid' : undefined}
               actions={
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={panelActions.onCollapse} title="Hide panel">
-                    <PanelRightClose className="w-3.5 h-3.5" />
-                  </Button>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -987,17 +985,25 @@ const JsonPlayground: React.FC = () => {
                     className="hidden"
                     onChange={handleFileChange}
                   />
-                  <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={loadFromFile} title="Load from file">
-                    <Upload className="w-3.5 h-3.5" />
-                    Load file
-                  </Button>
-                  <Dialog open={loadUrlOpen} onOpenChange={setLoadUrlOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" title="Load from URL">
-                        <Link className="w-3.5 h-3.5" />
-                        Load URL
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={loadFromFile}>
+                        <Upload className="w-3.5 h-3.5" />
                       </Button>
-                    </DialogTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Load from file</TooltipContent>
+                  </Tooltip>
+                  <Dialog open={loadUrlOpen} onOpenChange={setLoadUrlOpen}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DialogTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <Link className="w-3.5 h-3.5" />
+                          </Button>
+                        </DialogTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>Load from URL</TooltipContent>
+                    </Tooltip>
                     <DialogContent>
                       <DialogHeader>
                         <DialogTitle>Load JSON from URL</DialogTitle>
@@ -1017,14 +1023,22 @@ const JsonPlayground: React.FC = () => {
                       </div>
                     </DialogContent>
                   </Dialog>
-                  <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={formatJson} title="Format JSON">
-                    <AlignLeft className="w-3.5 h-3.5" />
-                    Format
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" onClick={minifyJson} title="Minify JSON">
-                    <Minus className="w-3.5 h-3.5" />
-                    Minify
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={formatJson}>
+                        <AlignLeft className="w-3.5 h-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Format JSON</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={minifyJson}>
+                        <Minus className="w-3.5 h-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Minify JSON</TooltipContent>
+                  </Tooltip>
                 </div>
               }
             />
@@ -1055,9 +1069,6 @@ const JsonPlayground: React.FC = () => {
               }
               actions={
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={panelActions.onCollapse} title="Hide panel">
-                    <PanelRightClose className="w-3.5 h-3.5" />
-                  </Button>
                   <GitBranch className="w-3.5 h-3.5 text-muted-foreground" />
                 </div>
               }
@@ -1086,9 +1097,6 @@ const JsonPlayground: React.FC = () => {
               statusText="JavaScript"
               actions={
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={panelActions.onCollapse} title="Hide panel">
-                    <PanelRightClose className="w-3.5 h-3.5" />
-                  </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs" title="Insert snippet">
