@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Play, Trash2, FileJson, Code2, Terminal, Zap, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2, LayoutGrid, PanelRightClose, PanelLeftClose } from 'lucide-react';
+import { Play, Trash2, FileJson, Code2, Terminal, Zap, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2, PanelRightClose, Plus, X } from 'lucide-react';
 import CodeEditor from './CodeEditor';
 import JsonEditor from './JsonEditor';
 import PanelHeader from './PanelHeader';
@@ -25,19 +25,22 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useToast } from '@/hooks/use-toast';
 import { CODE_SNIPPETS } from '@/hooks/useAutocomplete';
 import Queryable from '@/lib/Queryable';
-import type { PanelId, LayoutMode } from '@/lib/playground-types';
-
-const LAYOUT_OPTIONS: { value: LayoutMode; label: string; title: string }[] = [
-  { value: 'horizontal', label: 'Row', title: '4 panels in one row' },
-  { value: 'vertical', label: 'Column', title: '4 panels in one column' },
-  { value: 'grid-2x2', label: '2×2 Grid', title: '2 rows × 2 columns' },
-  { value: 'split-left', label: '2 left, 2 right', title: 'Vertical split: 2 panels left, 2 right' },
-  { value: 'split-right', label: '1 left, 3 right', title: 'Vertical split: 1 panel left, 3 right' },
-  { value: 'split-three-left', label: '3 left, 1 right', title: 'Vertical split: 3 panels left, 1 right' },
-  { value: 'top-bottom', label: '2 top, 2 bottom', title: 'Horizontal split: 2 panels top, 2 bottom' },
-  { value: 'bottom-top', label: '1 top, 3 bottom', title: 'Horizontal split: 1 panel top, 3 bottom' },
-  { value: 'three-top', label: '3 top, 1 bottom', title: 'Horizontal split: 3 panels top, 1 bottom' },
-];
+import type { PanelId } from '@/lib/playground-types';
+import {
+  type LayoutNode,
+  type LayoutLeaf,
+  type LayoutSplit,
+  type DropPosition,
+  loadLayoutWithMigration,
+  saveLayout,
+  getDefaultLayout,
+  getFirstLeafId,
+  findNodeAndParent,
+  removeTabFromTree,
+  insertTabIntoNode,
+  getPanelIdsInTree,
+  updateSplitRatio,
+} from '@/lib/layout-tree';
 
 const DEFAULT_JSON = `{
   "user": {
@@ -83,9 +86,6 @@ const getDataShape = (data: unknown): string => {
 };
 
 const STORAGE_KEY = 'json-playground-state';
-const PANEL_ORDER_KEY = 'json-playground-panel-order';
-const LAYOUT_MODE_KEY = 'json-playground-layout-mode';
-const COLLAPSED_PANELS_KEY = 'json-playground-collapsed-panels';
 const SHARE_PARAM = 's';
 const MAX_SHARE_LENGTH = 1800;
 
@@ -96,99 +96,284 @@ const PANEL_LABELS: Record<PanelId, string> = {
   output: 'Output',
 };
 
-function loadCollapsedPanels(): PanelId[] {
-  try {
-    const raw = localStorage.getItem(COLLAPSED_PANELS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id): id is PanelId => VALID_PANEL_IDS.includes(id as PanelId));
-  } catch {
-    return [];
-  }
-}
+const PANEL_ICONS: Record<PanelId, React.ComponentType<{ size?: number; className?: string }>> = {
+  json: FileJson as React.ComponentType<{ size?: number; className?: string }>,
+  tree: GitBranch as React.ComponentType<{ size?: number; className?: string }>,
+  code: Code2 as React.ComponentType<{ size?: number; className?: string }>,
+  output: Terminal as React.ComponentType<{ size?: number; className?: string }>,
+};
 
-export type { PanelId, LayoutMode } from '@/lib/playground-types';
+export type { PanelId } from '@/lib/playground-types';
 
-const DEFAULT_PANEL_ORDER: PanelId[] = ['json', 'tree', 'code', 'output'];
 const VALID_PANEL_IDS: PanelId[] = ['json', 'tree', 'code', 'output'];
 
-function loadPanelOrder(): PanelId[] {
-  try {
-    const raw = localStorage.getItem(PANEL_ORDER_KEY);
-    if (!raw) return [...DEFAULT_PANEL_ORDER];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [...DEFAULT_PANEL_ORDER];
-    const order = parsed.filter((id): id is PanelId => VALID_PANEL_IDS.includes(id as PanelId));
-    if (order.length === 4) {
-      const seen = new Set<PanelId>();
-      for (const id of order) {
-        if (seen.has(id)) return [...DEFAULT_PANEL_ORDER];
-        seen.add(id);
-      }
-      return order;
-    }
-    // Migrate old 3-panel saved order: insert 'tree' after 'json'
-    if (order.length === 3) {
-      const migrated: PanelId[] = [];
-      for (const id of order) {
-        migrated.push(id);
-        if (id === 'json') migrated.push('tree');
-      }
-      if (migrated.length === 4) return migrated;
-    }
-    return [...DEFAULT_PANEL_ORDER];
-  } catch {
-    return [...DEFAULT_PANEL_ORDER];
-  }
+export type PanelActions = {
+  isCollapsed: boolean;
+  onCollapse: () => void;
+  onExpand: () => void;
+};
+
+function DropZoneOverlay({ active }: { active: DropPosition | null }) {
+  if (!active) return null;
+  return (
+    <div
+      className="absolute inset-0 z-50 pointer-events-none border-2 border-primary/50 bg-primary/10 transition-all duration-75 rounded-sm"
+      style={{
+        ...(active === 'center' && { inset: 0 }),
+        ...(active === 'left' && { left: 0, top: 0, bottom: 0, width: '33%' }),
+        ...(active === 'right' && { right: 0, top: 0, bottom: 0, width: '33%', left: 'auto' }),
+        ...(active === 'top' && { top: 0, left: 0, right: 0, height: '33%' }),
+        ...(active === 'bottom' && { bottom: 0, left: 0, right: 0, height: '33%', top: 'auto' }),
+      }}
+    />
+  );
 }
 
-const VALID_LAYOUT_MODES: LayoutMode[] = [
-  'horizontal', 'vertical', 'grid-2x2', 'split-left', 'split-right', 'split-three-left', 'top-bottom', 'bottom-top', 'three-top',
-];
-
-function getLayoutPanelDescription(
-  mode: LayoutMode,
-  panelOrder: PanelId[],
-  labels: Record<PanelId, string>
-): string {
-  const a = labels[panelOrder[0]];
-  const b = labels[panelOrder[1]];
-  const c = labels[panelOrder[2]];
-  const d = labels[panelOrder[3]];
-  switch (mode) {
-    case 'horizontal':
-      return `${a} | ${b} | ${c} | ${d} (left to right)`;
-    case 'vertical':
-      return `${a} → ${b} → ${c} → ${d} (top to bottom)`;
-    case 'grid-2x2':
-      return `Top: ${a}, ${b}. Bottom: ${c}, ${d}.`;
-    case 'split-left':
-      return `Left: ${a}, ${b}. Right: ${c}, ${d}.`;
-    case 'split-right':
-      return `Left: ${a}. Right: ${b}, ${c}, ${d}.`;
-    case 'split-three-left':
-      return `Left: ${a}, ${b}, ${c}. Right: ${d}.`;
-    case 'top-bottom':
-      return `Top: ${a}, ${b}. Bottom: ${c}, ${d}.`;
-    case 'bottom-top':
-      return `Top: ${a}. Bottom: ${b}, ${c}, ${d}.`;
-    case 'three-top':
-      return `Top: ${a}, ${b}, ${c}. Bottom: ${d}.`;
-    default:
-      return '';
-  }
+function DraggableTab({
+  tabId,
+  active,
+  onClick,
+  onClose,
+}: {
+  tabId: PanelId;
+  active: boolean;
+  onClick: () => void;
+  onClose: () => void;
+}) {
+  const Icon = PANEL_ICONS[tabId];
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData('tabId', tabId);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      onClick={onClick}
+      className={`group flex items-center gap-2 px-3 py-2 text-xs font-medium cursor-pointer border-r border-border min-w-fit select-none relative
+          ${active ? 'bg-muted text-foreground' : 'bg-background/80 text-muted-foreground hover:bg-muted/80 hover:text-foreground'}
+        `}
+    >
+      {active && <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary" />}
+      {Icon && <Icon size={12} className={active ? 'text-primary' : ''} />}
+      <span>{PANEL_LABELS[tabId]}</span>
+      <X
+        size={12}
+        className="ml-1 opacity-0 group-hover:opacity-100 hover:text-destructive"
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+      />
+    </div>
+  );
 }
 
-function loadLayoutMode(): LayoutMode {
-  try {
-    const saved = localStorage.getItem(LAYOUT_MODE_KEY);
-    if (saved === 'split') return 'split-left'; // migrate old value
-    if (saved && VALID_LAYOUT_MODES.includes(saved as LayoutMode)) return saved as LayoutMode;
-    return 'split-right'; // default: one left, two right
-  } catch {
-    return 'split-right';
+function LeafLayoutNode({
+  node,
+  onTabClick,
+  onAddTab,
+  onCloseTab,
+  onMoveTab,
+  renderContent,
+  getPanelActions,
+  closedPanelIds: closed,
+}: {
+  node: LayoutLeaf;
+  onTabClick: (nodeId: string, tabId: PanelId) => void;
+  onAddTab: (nodeId: string, tabId: PanelId) => void;
+  onCloseTab: (nodeId: string, tabId: PanelId) => void;
+  onMoveTab: (tabId: PanelId, targetNodeId: string, position: DropPosition) => void;
+  renderContent: (id: PanelId, actions: PanelActions) => React.ReactNode;
+  getPanelActions: (id: PanelId) => PanelActions;
+  closedPanelIds: PanelId[];
+}) {
+  const [dragOverZone, setDragOverZone] = useState<DropPosition | null>(null);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const w = rect.width;
+    const h = rect.height;
+    const edgeThreshold = 0.25;
+    if (x < w * edgeThreshold) setDragOverZone('left');
+    else if (x > w * (1 - edgeThreshold)) setDragOverZone('right');
+    else if (y < h * edgeThreshold) setDragOverZone('top');
+    else if (y > h * (1 - edgeThreshold)) setDragOverZone('bottom');
+    else setDragOverZone('center');
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const tabId = e.dataTransfer.getData('tabId') as PanelId | '';
+    if (tabId && VALID_PANEL_IDS.includes(tabId) && dragOverZone) {
+      onMoveTab(tabId as PanelId, node.id, dragOverZone);
+    }
+    setDragOverZone(null);
+  };
+
+  const content = node.activeTab
+    ? renderContent(node.activeTab, getPanelActions(node.activeTab))
+    : (
+      <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+        {closed.length > 0 ? 'Add a panel using +' : 'No panels'}
+      </div>
+    );
+
+  return (
+    <div
+      className="flex flex-col h-full w-full bg-background relative border border-border/50 overflow-hidden rounded-sm"
+      onDragOver={handleDragOver}
+      onDragLeave={() => setDragOverZone(null)}
+      onDrop={handleDrop}
+    >
+      <DropZoneOverlay active={dragOverZone} />
+      <div className="flex bg-muted/50 border-b border-border min-h-[36px] overflow-hidden shrink-0">
+        <div className="flex overflow-x-auto flex-1 min-w-0">
+          {node.tabs.map((tabId) => (
+            <DraggableTab
+              key={tabId}
+              tabId={tabId}
+              active={node.activeTab === tabId}
+              onClick={() => onTabClick(node.id, tabId)}
+              onClose={() => onCloseTab(node.id, tabId)}
+            />
+          ))}
+          {node.tabs.length === 0 && (
+            <span className="px-3 py-2 text-xs text-muted-foreground font-medium uppercase">Empty</span>
+          )}
+        </div>
+        {closed.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="px-2 hover:bg-muted text-muted-foreground border-l border-border flex items-center" aria-label="Add panel">
+                <Plus size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {closed.map((id) => (
+                <DropdownMenuItem key={id} onClick={() => onAddTab(node.id, id)}>
+                  {PANEL_LABELS[id]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+      </div>
+      <div className="flex-1 overflow-hidden relative min-h-0">{content}</div>
+    </div>
+  );
+}
+
+function SplitLayoutNode({
+  node,
+  onTabClick,
+  onAddTab,
+  onCloseTab,
+  onMoveTab,
+  onRatioChange,
+  renderContent,
+  getPanelActions,
+  closedPanelIds,
+  panelStorage,
+}: {
+  node: LayoutSplit;
+  onTabClick: (nodeId: string, tabId: PanelId) => void;
+  onAddTab: (nodeId: string, tabId: PanelId) => void;
+  onCloseTab: (nodeId: string, tabId: PanelId) => void;
+  onMoveTab: (tabId: PanelId, targetNodeId: string, position: DropPosition) => void;
+  onRatioChange: (splitId: string, ratio: number) => void;
+  renderContent: (id: PanelId, actions: PanelActions) => React.ReactNode;
+  getPanelActions: (id: PanelId) => PanelActions;
+  closedPanelIds: PanelId[];
+  panelStorage: (suffix: string) => { getItem: (n: string) => string | null; setItem: (n: string, v: string) => void };
+}) {
+  const direction = node.direction === 'row' ? 'horizontal' : 'vertical';
+  const ratio = Math.max(10, Math.min(90, node.ratio));
+  // Do not use onLayout here: it fires on mount and during resize and causes
+  // setLayout -> re-render -> onLayout -> setLayout infinite loop.
+  // Split sizes are still persisted via the storage prop.
+
+  return (
+    <ResizablePanelGroup
+      direction={direction}
+      id={node.id}
+      storage={panelStorage(node.id)}
+      className="h-full w-full"
+    >
+      <ResizablePanel id={`${node.id}-first`} order={1} defaultSize={ratio} minSize={15}>
+        <LayoutNodeRenderer
+          node={node.first}
+          onTabClick={onTabClick}
+          onAddTab={onAddTab}
+          onCloseTab={onCloseTab}
+          onMoveTab={onMoveTab}
+          onRatioChange={onRatioChange}
+          renderContent={renderContent}
+          getPanelActions={getPanelActions}
+          closedPanelIds={closedPanelIds}
+          panelStorage={panelStorage}
+        />
+      </ResizablePanel>
+      <ResizableHandle className={direction === 'horizontal' ? 'resizer w-1' : 'resizer h-1'} />
+      <ResizablePanel id={`${node.id}-second`} order={2} defaultSize={100 - ratio} minSize={15}>
+        <LayoutNodeRenderer
+          node={node.second}
+          onTabClick={onTabClick}
+          onAddTab={onAddTab}
+          onCloseTab={onCloseTab}
+          onMoveTab={onMoveTab}
+          onRatioChange={onRatioChange}
+          renderContent={renderContent}
+          getPanelActions={getPanelActions}
+          closedPanelIds={closedPanelIds}
+          panelStorage={panelStorage}
+        />
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  );
+}
+
+function LayoutNodeRenderer(props: {
+  node: LayoutNode;
+  onTabClick: (nodeId: string, tabId: PanelId) => void;
+  onAddTab: (nodeId: string, tabId: PanelId) => void;
+  onCloseTab: (nodeId: string, tabId: PanelId) => void;
+  onMoveTab: (tabId: PanelId, targetNodeId: string, position: DropPosition) => void;
+  onRatioChange: (splitId: string, ratio: number) => void;
+  renderContent: (id: PanelId, actions: PanelActions) => React.ReactNode;
+  getPanelActions: (id: PanelId) => PanelActions;
+  closedPanelIds: PanelId[];
+  panelStorage: (suffix: string) => { getItem: (n: string) => string | null; setItem: (n: string, v: string) => void };
+}) {
+  if (props.node.type === 'leaf') {
+    return (
+      <LeafLayoutNode
+        node={props.node}
+        onTabClick={props.onTabClick}
+        onAddTab={props.onAddTab}
+        onCloseTab={props.onCloseTab}
+        onMoveTab={props.onMoveTab}
+        renderContent={props.renderContent}
+        getPanelActions={props.getPanelActions}
+        closedPanelIds={props.closedPanelIds}
+      />
+    );
   }
+  return (
+    <SplitLayoutNode
+      node={props.node}
+      onTabClick={props.onTabClick}
+      onAddTab={props.onAddTab}
+      onCloseTab={props.onCloseTab}
+      onMoveTab={props.onMoveTab}
+      onRatioChange={props.onRatioChange}
+      renderContent={props.renderContent}
+      getPanelActions={props.getPanelActions}
+      closedPanelIds={props.closedPanelIds}
+      panelStorage={props.panelStorage}
+    />
+  );
 }
 
 function loadSavedState(): { json: string; code: string } | null {
@@ -221,17 +406,7 @@ const JsonPlayground: React.FC = () => {
   const [insertIntoCode, setInsertIntoCode] = useState<string | null>(null);
   const [loadUrlOpen, setLoadUrlOpen] = useState(false);
   const [loadUrlValue, setLoadUrlValue] = useState('');
-  const [panelOrder, setPanelOrder] = useState<PanelId[]>(loadPanelOrder);
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(loadLayoutMode);
-  const [collapsedPanels, setCollapsedPanels] = useState<Set<PanelId>>(
-    () => new Set(loadCollapsedPanels())
-  );
-  const panelRefs = useRef<Record<PanelId, { collapse: () => void; expand: (minSize?: number) => void } | null>>({
-    json: null,
-    tree: null,
-    code: null,
-    output: null,
-  });
+  const [layout, setLayout] = useState<LayoutNode>(loadLayoutWithMigration);
   const { toast } = useToast();
   const executionRunIdRef = useRef(0);
   const executionTimedOutRef = useRef(false);
@@ -293,28 +468,8 @@ const JsonPlayground: React.FC = () => {
   }, [jsonInput, codeInput, debouncedSave]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(PANEL_ORDER_KEY, JSON.stringify(panelOrder));
-    } catch {
-      /* ignore */
-    }
-  }, [panelOrder]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LAYOUT_MODE_KEY, layoutMode);
-    } catch {
-      /* ignore */
-    }
-  }, [layoutMode]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(COLLAPSED_PANELS_KEY, JSON.stringify([...collapsedPanels]));
-    } catch {
-      /* ignore */
-    }
-  }, [collapsedPanels]);
+    saveLayout(layout);
+  }, [layout]);
 
   // Keep parsed JSON data in sync for autocomplete
   useEffect(() => {
@@ -753,6 +908,38 @@ const JsonPlayground: React.FC = () => {
     }
   }, [toast]);
 
+  const handleMoveTab = useCallback((tabId: PanelId, targetNodeId: string, position: DropPosition) => {
+    const { newRoot: rootAfterRemove, removedTabId } = removeTabFromTree(layout, tabId);
+    if (!removedTabId) return;
+    const targetCheck = findNodeAndParent(rootAfterRemove, targetNodeId);
+    if (!targetCheck) return;
+    const finalRoot = insertTabIntoNode(rootAfterRemove, targetNodeId, removedTabId, position);
+    setLayout(finalRoot);
+  }, [layout]);
+
+  const handleTabClick = useCallback((nodeId: string, tabId: PanelId) => {
+    const newRoot = JSON.parse(JSON.stringify(layout)) as LayoutNode;
+    const result = findNodeAndParent(newRoot, nodeId);
+    if (result?.node && result.node.type === 'leaf') {
+      (result.node as LayoutLeaf).activeTab = tabId;
+      setLayout(newRoot);
+    }
+  }, [layout]);
+
+  const handleAddTab = useCallback((nodeId: string, tabId: PanelId) => {
+    const finalRoot = insertTabIntoNode(layout, nodeId, tabId, 'center');
+    setLayout(finalRoot);
+  }, [layout]);
+
+  const handleCloseTab = useCallback((_nodeId: string, tabId: PanelId) => {
+    const { newRoot } = removeTabFromTree(layout, tabId);
+    setLayout(newRoot);
+  }, [layout]);
+
+  const handleSplitRatioChange = useCallback((splitId: string, ratio: number) => {
+    setLayout((prev) => updateSplitRatio(prev, splitId, ratio));
+  }, []);
+
   const panelStorage = useCallback((suffix: string) => ({
     getItem: (name: string) => {
       try {
@@ -770,30 +957,11 @@ const JsonPlayground: React.FC = () => {
     },
   }), []);
 
-  type PanelActions = {
-    isCollapsed: boolean;
-    onCollapse: () => void;
-    onExpand: () => void;
-  };
-
-  useEffect(() => {
-    collapsedPanels.forEach((id) => panelRefs.current[id]?.collapse());
-  }, [collapsedPanels]);
-
-  const expandPanel = useCallback((id: PanelId) => {
-    setCollapsedPanels((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    requestAnimationFrame(() => panelRefs.current[id]?.expand());
-  }, []);
-
-  const getPanelActions = useCallback((id: PanelId): PanelActions => ({
-    isCollapsed: collapsedPanels.has(id),
-    onCollapse: () => setCollapsedPanels((prev) => new Set(prev).add(id)),
-    onExpand: () => expandPanel(id),
-  }), [collapsedPanels, expandPanel]);
+  const getPanelActions = useCallback((_id: PanelId): PanelActions => ({
+    isCollapsed: false,
+    onCollapse: () => {},
+    onExpand: () => {},
+  }), []);
 
   const renderPanelContent = useCallback((id: PanelId, panelActions: PanelActions) => {
     if (panelActions.isCollapsed) {
@@ -805,10 +973,8 @@ const JsonPlayground: React.FC = () => {
           <div className="h-full flex flex-col border-r border-border">
             <PanelHeader
               title="JSON Data"
-              status={jsonStatus.valid ? 'valid' : 'invalid'}
-              statusText={
-                jsonStatus.valid ? '✓ Valid' : `✗ ${jsonStatus.error?.split(':')[0]}`
-              }
+              status={jsonStatus.valid ? 'valid' : 'neutral'}
+              statusText={jsonStatus.valid ? '✓ Valid' : undefined}
               actions={
                 <div className="flex items-center gap-2">
                   <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={panelActions.onCollapse} title="Hide panel">
@@ -871,6 +1037,11 @@ const JsonPlayground: React.FC = () => {
                 />
               </div>
             </div>
+            {!jsonStatus.valid && jsonStatus.error && (
+              <footer className="shrink-0 px-3 py-2 border-t border-border bg-destructive/10 text-destructive text-xs font-medium">
+                {jsonStatus.error}
+              </footer>
+            )}
           </div>
         );
       case 'tree':
@@ -956,30 +1127,16 @@ const JsonPlayground: React.FC = () => {
         );
       case 'output':
         return (
-          <div className="h-full flex flex-col">
-            <PanelHeader
-              title="Output"
-              actions={
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={panelActions.onCollapse} title="Hide panel">
-                    <PanelRightClose className="w-3.5 h-3.5" />
-                  </Button>
-                  <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
-                </div>
-              }
+          <div className="h-full overflow-hidden">
+            <OutputPanel
+              entries={output}
+              meta={meta}
+              isExecuting={isExecuting}
             />
-            <div className="flex-1 overflow-hidden">
-              <OutputPanel
-                entries={output}
-                meta={meta}
-                isExecuting={isExecuting}
-              />
-            </div>
           </div>
         );
     }
   }, [
-    collapsedPanels,
     getPanelActions,
     jsonStatus.valid,
     jsonStatus.error,
@@ -1004,6 +1161,8 @@ const JsonPlayground: React.FC = () => {
     setInsertIntoCode,
   ]);
 
+  const closedPanelIds = VALID_PANEL_IDS.filter((id) => !getPanelIdsInTree(layout).has(id));
+
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
@@ -1026,50 +1185,34 @@ const JsonPlayground: React.FC = () => {
           </div>
         )}
         <div className="flex shrink-0 items-center gap-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                title={`Panel layout. Order: ${panelOrder.map((id) => PANEL_LABELS[id]).join(' → ')}`}
-                aria-label="Panel layout"
-              >
-                <LayoutGrid className="w-4 h-4" />
-                Layout
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              {LAYOUT_OPTIONS.map((opt) => (
-                <DropdownMenuItem
-                  key={opt.value}
-                  onClick={() => setLayoutMode(opt.value)}
-                  title={getLayoutPanelDescription(opt.value, panelOrder, PANEL_LABELS)}
-                  className="flex flex-col items-start gap-0.5 py-2"
-                >
-                  <span className="font-medium">{opt.label}</span>
-                  <span className="text-xs text-muted-foreground font-normal">
-                    {getLayoutPanelDescription(opt.value, panelOrder, PANEL_LABELS)}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-              {collapsedPanels.size > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  {([...collapsedPanels]).map((id) => (
-                    <DropdownMenuItem
-                      key={id}
-                      onClick={() => expandPanel(id)}
-                      title={`Show ${PANEL_LABELS[id]} panel`}
-                    >
-                      <PanelLeftClose className="w-3.5 h-3.5 mr-2" />
-                      Show {PANEL_LABELS[id]}
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setLayout(getDefaultLayout())}
+            title="Reset to default layout"
+          >
+            Reset layout
+          </Button>
+          {closedPanelIds.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2" title="Add a closed panel">
+                  Add panel ({closedPanelIds.length})
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {closedPanelIds.map((id) => (
+                  <DropdownMenuItem
+                    key={id}
+                    onClick={() => setLayout(insertTabIntoNode(layout, getFirstLeafId(layout), id, 'center'))}
+                  >
+                    {PANEL_LABELS[id]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
             variant={autoRun ? 'default' : 'outline'}
             size="sm"
@@ -1103,424 +1246,20 @@ const JsonPlayground: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content: panels in user order — layout matches selected mode */}
+      {/* Main Content: tree-based layout */}
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-        {layoutMode === 'horizontal' && (
-          <ResizablePanelGroup
-            direction="horizontal"
-            id="playground-horizontal"
-            storage={panelStorage('horizontal')}
-          >
-            {panelOrder.map((id, i) => (
-              <React.Fragment key={id}>
-                <ResizablePanel
-                  ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                  id={id}
-                  order={i + 1}
-                  defaultSize={100 / 4}
-                  minSize={20}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {renderPanelContent(id, getPanelActions(id))}
-                </ResizablePanel>
-                {i < panelOrder.length - 1 && <ResizableHandle className="resizer w-1" />}
-              </React.Fragment>
-            ))}
-          </ResizablePanelGroup>
-        )}
-        {layoutMode === 'vertical' && (
-          <ResizablePanelGroup
-            direction="vertical"
-            id="playground-vertical"
-            storage={panelStorage('vertical')}
-          >
-            {panelOrder.map((id, i) => (
-              <React.Fragment key={id}>
-                <ResizablePanel
-                  ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                  id={id}
-                  order={i + 1}
-                  defaultSize={100 / 4}
-                  minSize={15}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {renderPanelContent(id, getPanelActions(id))}
-                </ResizablePanel>
-                {i < panelOrder.length - 1 && <ResizableHandle className="resizer h-1" />}
-              </React.Fragment>
-            ))}
-          </ResizablePanelGroup>
-        )}
-        {layoutMode === 'grid-2x2' && (
-          <ResizablePanelGroup
-            direction="vertical"
-            id="playground-grid-2x2-root"
-            storage={panelStorage('grid-2x2-root')}
-          >
-            <ResizablePanel id="grid-2x2-top" order={1} defaultSize={50} minSize={25}>
-              <ResizablePanelGroup
-                direction="horizontal"
-                id="playground-grid-2x2-top"
-                storage={panelStorage('grid-2x2-top')}
-              >
-                <ResizablePanel
-                  ref={(r) => { if (r) panelRefs.current[panelOrder[0]] = r; }}
-                  id={panelOrder[0]}
-                  order={1}
-                  defaultSize={50}
-                  minSize={20}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {renderPanelContent(panelOrder[0], getPanelActions(panelOrder[0]))}
-                </ResizablePanel>
-                <ResizableHandle className="resizer w-1" />
-                <ResizablePanel
-                  ref={(r) => { if (r) panelRefs.current[panelOrder[1]] = r; }}
-                  id={panelOrder[1]}
-                  order={2}
-                  defaultSize={50}
-                  minSize={20}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {renderPanelContent(panelOrder[1], getPanelActions(panelOrder[1]))}
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </ResizablePanel>
-            <ResizableHandle className="resizer h-1" />
-            <ResizablePanel id="grid-2x2-bottom" order={2} defaultSize={50} minSize={25}>
-              <ResizablePanelGroup
-                direction="horizontal"
-                id="playground-grid-2x2-bottom"
-                storage={panelStorage('grid-2x2-bottom')}
-              >
-                <ResizablePanel
-                  ref={(r) => { if (r) panelRefs.current[panelOrder[2]] = r; }}
-                  id={panelOrder[2]}
-                  order={1}
-                  defaultSize={50}
-                  minSize={20}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {renderPanelContent(panelOrder[2], getPanelActions(panelOrder[2]))}
-                </ResizablePanel>
-                <ResizableHandle className="resizer w-1" />
-                <ResizablePanel
-                  ref={(r) => { if (r) panelRefs.current[panelOrder[3]] = r; }}
-                  id={panelOrder[3]}
-                  order={2}
-                  defaultSize={50}
-                  minSize={20}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {renderPanelContent(panelOrder[3], getPanelActions(panelOrder[3]))}
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
-        {layoutMode === 'split-left' && (
-          <ResizablePanelGroup
-            direction="horizontal"
-            id="playground-split-left-root"
-            storage={panelStorage('split-left-root')}
-          >
-            <ResizablePanel id="split-left-group" order={1} defaultSize={50} minSize={30}>
-              <ResizablePanelGroup
-                direction="vertical"
-                id="playground-split-left"
-                storage={panelStorage('split-left')}
-              >
-                {panelOrder.slice(0, 2).map((id, i) => (
-                  <React.Fragment key={id}>
-                    <ResizablePanel
-                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                      id={id}
-                      order={i + 1}
-                      defaultSize={50}
-                      minSize={20}
-                      collapsible
-                      collapsedSize={0}
-                    >
-                      {renderPanelContent(id, getPanelActions(id))}
-                    </ResizablePanel>
-                    {i === 0 && <ResizableHandle className="resizer h-1" />}
-                  </React.Fragment>
-                ))}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-            <ResizableHandle className="resizer w-1" />
-            <ResizablePanel id="split-left-right-group" order={2} defaultSize={50} minSize={30}>
-              <ResizablePanelGroup
-                direction="vertical"
-                id="playground-split-left-right"
-                storage={panelStorage('split-left-right')}
-              >
-                {panelOrder.slice(2, 4).map((id, i) => (
-                  <React.Fragment key={id}>
-                    <ResizablePanel
-                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                      id={id}
-                      order={i + 1}
-                      defaultSize={50}
-                      minSize={20}
-                      collapsible
-                      collapsedSize={0}
-                    >
-                      {renderPanelContent(id, getPanelActions(id))}
-                    </ResizablePanel>
-                    {i === 0 && <ResizableHandle className="resizer h-1" />}
-                  </React.Fragment>
-                ))}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
-        {layoutMode === 'split-right' && (
-          <ResizablePanelGroup
-            direction="horizontal"
-            id="playground-split-right-root"
-            storage={panelStorage('split-right-root')}
-          >
-            <ResizablePanel
-              ref={(r) => { if (r) panelRefs.current[panelOrder[0]] = r; }}
-              id={panelOrder[0]}
-              order={1}
-              defaultSize={50}
-              minSize={25}
-              collapsible
-              collapsedSize={0}
-            >
-              {renderPanelContent(panelOrder[0], getPanelActions(panelOrder[0]))}
-            </ResizablePanel>
-            <ResizableHandle className="resizer w-1" />
-            <ResizablePanel id="split-right-group" order={2} defaultSize={50} minSize={30}>
-              <ResizablePanelGroup
-                direction="vertical"
-                id="playground-split-right"
-                storage={panelStorage('split-right')}
-              >
-                {panelOrder.slice(1, 4).map((id, i) => (
-                  <React.Fragment key={id}>
-                    <ResizablePanel
-                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                      id={id}
-                      order={i + 1}
-                      defaultSize={100 / 3}
-                      minSize={15}
-                      collapsible
-                      collapsedSize={0}
-                    >
-                      {renderPanelContent(id, getPanelActions(id))}
-                    </ResizablePanel>
-                    {i < 2 && <ResizableHandle className="resizer h-1" />}
-                  </React.Fragment>
-                ))}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
-        {layoutMode === 'split-three-left' && (
-          <ResizablePanelGroup
-            direction="horizontal"
-            id="playground-split-three-left-root"
-            storage={panelStorage('split-three-left-root')}
-          >
-            <ResizablePanel id="split-three-left-group" order={1} defaultSize={50} minSize={30}>
-              <ResizablePanelGroup
-                direction="vertical"
-                id="playground-split-three-left"
-                storage={panelStorage('split-three-left')}
-              >
-                {panelOrder.slice(0, 3).map((id, i) => (
-                  <React.Fragment key={id}>
-                    <ResizablePanel
-                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                      id={id}
-                      order={i + 1}
-                      defaultSize={100 / 3}
-                      minSize={15}
-                      collapsible
-                      collapsedSize={0}
-                    >
-                      {renderPanelContent(id, getPanelActions(id))}
-                    </ResizablePanel>
-                    {i < 2 && <ResizableHandle className="resizer h-1" />}
-                  </React.Fragment>
-                ))}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-            <ResizableHandle className="resizer w-1" />
-            <ResizablePanel
-              ref={(r) => { if (r) panelRefs.current[panelOrder[3]] = r; }}
-              id={panelOrder[3]}
-              order={2}
-              defaultSize={50}
-              minSize={25}
-              collapsible
-              collapsedSize={0}
-            >
-              {renderPanelContent(panelOrder[3], getPanelActions(panelOrder[3]))}
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
-        {layoutMode === 'top-bottom' && (
-          <ResizablePanelGroup
-            direction="vertical"
-            id="playground-top-bottom-root"
-            storage={panelStorage('top-bottom-root')}
-          >
-            <ResizablePanel id="top-group" order={1} defaultSize={50} minSize={30}>
-              <ResizablePanelGroup
-                direction="horizontal"
-                id="playground-top-bottom-top"
-                storage={panelStorage('top-bottom-top')}
-              >
-                <ResizablePanel
-                  ref={(r) => { if (r) panelRefs.current[panelOrder[0]] = r; }}
-                  id={panelOrder[0]}
-                  order={1}
-                  defaultSize={50}
-                  minSize={20}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {renderPanelContent(panelOrder[0], getPanelActions(panelOrder[0]))}
-                </ResizablePanel>
-                <ResizableHandle className="resizer w-1" />
-                <ResizablePanel
-                  ref={(r) => { if (r) panelRefs.current[panelOrder[1]] = r; }}
-                  id={panelOrder[1]}
-                  order={2}
-                  defaultSize={50}
-                  minSize={20}
-                  collapsible
-                  collapsedSize={0}
-                >
-                  {renderPanelContent(panelOrder[1], getPanelActions(panelOrder[1]))}
-                </ResizablePanel>
-              </ResizablePanelGroup>
-            </ResizablePanel>
-            <ResizableHandle className="resizer h-1" />
-            <ResizablePanel id="top-bottom-bottom-group" order={2} defaultSize={50} minSize={30}>
-              <ResizablePanelGroup
-                direction="horizontal"
-                id="playground-top-bottom-bottom"
-                storage={panelStorage('top-bottom-bottom')}
-              >
-                {panelOrder.slice(2, 4).map((id, i) => (
-                  <React.Fragment key={id}>
-                    <ResizablePanel
-                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                      id={id}
-                      order={i + 1}
-                      defaultSize={50}
-                      minSize={20}
-                      collapsible
-                      collapsedSize={0}
-                    >
-                      {renderPanelContent(id, getPanelActions(id))}
-                    </ResizablePanel>
-                    {i === 0 && <ResizableHandle className="resizer w-1" />}
-                  </React.Fragment>
-                ))}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
-        {layoutMode === 'bottom-top' && (
-          <ResizablePanelGroup
-            direction="vertical"
-            id="playground-bottom-top-root"
-            storage={panelStorage('bottom-top-root')}
-          >
-            <ResizablePanel
-              ref={(r) => { if (r) panelRefs.current[panelOrder[0]] = r; }}
-              id={panelOrder[0]}
-              order={1}
-              defaultSize={50}
-              minSize={25}
-              collapsible
-              collapsedSize={0}
-            >
-              {renderPanelContent(panelOrder[0], getPanelActions(panelOrder[0]))}
-            </ResizablePanel>
-            <ResizableHandle className="resizer h-1" />
-            <ResizablePanel id="bottom-group" order={2} defaultSize={50} minSize={30}>
-              <ResizablePanelGroup
-                direction="horizontal"
-                id="playground-bottom-top-bottom"
-                storage={panelStorage('bottom-top-bottom')}
-              >
-                {panelOrder.slice(1, 4).map((id, i) => (
-                  <React.Fragment key={id}>
-                    <ResizablePanel
-                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                      id={id}
-                      order={i + 1}
-                      defaultSize={100 / 3}
-                      minSize={15}
-                      collapsible
-                      collapsedSize={0}
-                    >
-                      {renderPanelContent(id, getPanelActions(id))}
-                    </ResizablePanel>
-                    {i < 2 && <ResizableHandle className="resizer w-1" />}
-                  </React.Fragment>
-                ))}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
-        {layoutMode === 'three-top' && (
-          <ResizablePanelGroup
-            direction="vertical"
-            id="playground-three-top-root"
-            storage={panelStorage('three-top-root')}
-          >
-            <ResizablePanel id="three-top-top-group" order={1} defaultSize={50} minSize={30}>
-              <ResizablePanelGroup
-                direction="horizontal"
-                id="playground-three-top-top"
-                storage={panelStorage('three-top-top')}
-              >
-                {panelOrder.slice(0, 3).map((id, i) => (
-                  <React.Fragment key={id}>
-                    <ResizablePanel
-                      ref={(r) => { if (r) panelRefs.current[id] = r; }}
-                      id={id}
-                      order={i + 1}
-                      defaultSize={100 / 3}
-                      minSize={15}
-                      collapsible
-                      collapsedSize={0}
-                    >
-                      {renderPanelContent(id, getPanelActions(id))}
-                    </ResizablePanel>
-                    {i < 2 && <ResizableHandle className="resizer w-1" />}
-                  </React.Fragment>
-                ))}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-            <ResizableHandle className="resizer h-1" />
-            <ResizablePanel
-              ref={(r) => { if (r) panelRefs.current[panelOrder[3]] = r; }}
-              id={panelOrder[3]}
-              order={2}
-              defaultSize={50}
-              minSize={25}
-              collapsible
-              collapsedSize={0}
-            >
-              {renderPanelContent(panelOrder[3], getPanelActions(panelOrder[3]))}
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        )}
+        <LayoutNodeRenderer
+          node={layout}
+          onTabClick={handleTabClick}
+          onAddTab={handleAddTab}
+          onCloseTab={handleCloseTab}
+          onMoveTab={handleMoveTab}
+          onRatioChange={handleSplitRatioChange}
+          renderContent={renderPanelContent}
+          getPanelActions={getPanelActions}
+          closedPanelIds={closedPanelIds}
+          panelStorage={panelStorage}
+        />
       </div>
     </div>
   );
