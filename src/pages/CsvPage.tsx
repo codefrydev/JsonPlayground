@@ -1,0 +1,110 @@
+import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from '@/components/ui/resizable';
+import { FileSpreadsheet, Home } from 'lucide-react';
+import CsvEditor from '@/components/CsvEditor';
+import DesktopOnly from '@/components/DesktopOnly';
+import { csvToData } from '@/lib/csv-json-convert';
+
+const DEFAULT_CSV = `name,age,city
+Alice,30,New York
+Bob,25,London
+Carol,35,"San Francisco"`;
+
+const CsvPage: React.FC = () => {
+  const [csvInput, setCsvInput] = useState(DEFAULT_CSV);
+
+  const { data, error } = useMemo(() => {
+    const result = csvToData(csvInput);
+    if (result.ok) return { data: result.data, error: null as string | null };
+    return { data: [] as Record<string, string>[], error: result.error };
+  }, [csvInput]);
+
+  const headers = useMemo(() => {
+    if (data.length === 0) return [];
+    return Object.keys(data[0]);
+  }, [data]);
+
+  return (
+    <DesktopOnly>
+      <div className="h-screen flex flex-col bg-background">
+        <header className="flex items-center justify-between gap-4 px-6 py-4 border-b border-border bg-card shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
+              <FileSpreadsheet className="w-5 h-5 text-primary" />
+            </div>
+            <h1 className="text-xl font-semibold text-foreground">
+              CSV Playground
+            </h1>
+            <Link
+              to="/"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+            >
+              <Home className="w-4 h-4" />
+              Home
+            </Link>
+          </div>
+        </header>
+
+        <div className="flex-1 min-h-0 flex flex-col p-4">
+          <ResizablePanelGroup direction="horizontal" className="flex-1 rounded-lg border border-border overflow-hidden">
+            <ResizablePanel defaultSize={50} minSize={20} className="flex flex-col min-w-0">
+              <div className="px-3 py-2 border-b border-border bg-muted/50 text-sm font-medium shrink-0">
+                CSV (input)
+              </div>
+              <div className="flex-1 min-h-0 flex flex-col">
+                <CsvEditor
+                  value={csvInput}
+                  onChange={setCsvInput}
+                  placeholder="Paste CSV here (first row = headers)..."
+                />
+              </div>
+            </ResizablePanel>
+            <ResizableHandle className="bg-border" />
+            <ResizablePanel defaultSize={50} minSize={20} className="flex flex-col min-w-0">
+              <div className="px-3 py-2 border-b border-border bg-muted/50 text-sm font-medium shrink-0">
+                Table preview
+              </div>
+              <div className="flex-1 min-h-0 overflow-auto p-2">
+                {error ? (
+                  <p className="text-sm text-destructive">{error}</p>
+                ) : data.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Enter CSV to see table preview.</p>
+                ) : (
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        {headers.map((h) => (
+                          <th key={h} className="border border-border bg-muted/50 px-3 py-2 text-left font-medium text-foreground">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.map((row, i) => (
+                        <tr key={i}>
+                          {headers.map((h) => (
+                            <td key={h} className="border border-border px-3 py-1.5 text-muted-foreground">
+                              {row[h]}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
+      </div>
+    </DesktopOnly>
+  );
+};
+
+export default CsvPage;
