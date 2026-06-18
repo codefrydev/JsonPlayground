@@ -3,6 +3,7 @@ import { CheckCircle2, XCircle, Clock, Hash, Type, List, Braces, ChevronDown, Ch
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { highlight, type HighlightLanguage } from '@/lib/highlight';
+import OutputJsonView from '@/components/OutputJsonView';
 
 interface OutputEntry {
   type: 'log' | 'error' | 'result' | 'info';
@@ -114,7 +115,11 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
   const collapsibleIndices = useMemo(
     () =>
       entries
-        .map((e, i) => (e.content.length > TRUNCATE_CHARS || e.content.split('\n').length > TRUNCATE_LINES ? i : -1))
+        .map((e, i) => {
+          if (getOutputLanguage(e.content) === 'json') return -1;
+          const formatted = formatContent(e.content);
+          return formatted.length > TRUNCATE_CHARS || formatted.split('\n').length > TRUNCATE_LINES ? i : -1;
+        })
         .filter((i) => i >= 0),
     [entries]
   );
@@ -189,11 +194,12 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
           <div className="space-y-2">
             {entries.map((entry, index) => {
               const formatted = formatContent(entry.content);
+              const lang = getOutputLanguage(entry.content);
+              const isJson = lang === 'json';
               const { truncated, isLong } = truncateContent(formatted, TRUNCATE_CHARS, TRUNCATE_LINES);
               const isExpanded = expanded.has(index);
               const showFull = !isLong || isExpanded;
               const displayText = showFull ? formatted : truncated;
-              const lang = getOutputLanguage(entry.content);
               const highlightedHtml = highlight(displayText, lang);
               return (
                 <div
@@ -217,7 +223,7 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
                       >
                         <Copy className="w-3 h-3" />
                       </Button>
-                      {isLong && (
+                      {!isJson && isLong && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -239,12 +245,16 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
                       )}
                     </div>
                   </div>
-                  <pre className="whitespace-pre-wrap break-words mt-0">
-                    <code
-                      className="hljs"
-                      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-                    />
-                  </pre>
+                  {isJson ? (
+                    <OutputJsonView value={formatted} />
+                  ) : (
+                    <pre className="whitespace-pre-wrap break-words mt-0">
+                      <code
+                        className="hljs"
+                        dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+                      />
+                    </pre>
+                  )}
                 </div>
               );
             })}
