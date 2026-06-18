@@ -1,12 +1,11 @@
 import type { Completion, CompletionContext, CompletionSource } from '@codemirror/autocomplete';
 import { getAllPaths, CODE_SNIPPETS, type AutocompleteSuggestion } from '@/hooks/useAutocomplete';
 
-function suggestionToCompletion(s: AutocompleteSuggestion, from: number): Completion {
+function suggestionToCompletion(s: AutocompleteSuggestion): Completion {
   return {
     label: s.displayPath,
     detail: s.type,
     apply: s.insertPath ?? s.path,
-    from,
   };
 }
 
@@ -26,7 +25,7 @@ export function createJsonDataCompletionSource(jsonData: unknown): CompletionSou
       const from = context.pos - (before.match(/\/\s*$/)?.[0].length ?? 1);
       return {
         from,
-        options: CODE_SNIPPETS.map((s) => suggestionToCompletion(s, from)),
+        options: CODE_SNIPPETS.map((s) => suggestionToCompletion(s)),
       };
     }
 
@@ -74,7 +73,7 @@ export function createJsonDataCompletionSource(jsonData: unknown): CompletionSou
     const from = matchStart + basePath.length + (partialKey ? 1 : 0);
     return {
       from,
-      options: options.map((s) => suggestionToCompletion(s, from)),
+      options: options.map((s) => suggestionToCompletion(s)),
     };
   };
 }

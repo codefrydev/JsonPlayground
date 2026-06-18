@@ -25,7 +25,7 @@ export function validateAgainstSchema(
   schemaText: string
 ): SchemaValidationResult {
   const schemaParse = parseJson(schemaText);
-  if (!schemaParse.valid) {
+  if (schemaParse.valid === false) {
     return { valid: false, errors: [`Invalid schema JSON: ${schemaParse.error}`] };
   }
 
@@ -51,7 +51,7 @@ export function schemaToDiagnostics(
   dataText: string
 ): { from: number; to: number; message: string; severity: 'error' }[] {
   const dataResult = parseJson(dataText);
-  if (!dataResult.valid || !schemaText.trim()) return [];
+  if (dataResult.valid === false || !schemaText.trim()) return [];
 
   const result = validateAgainstSchema(dataResult.data, schemaText);
   if (result.valid) return [];

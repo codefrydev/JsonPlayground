@@ -317,4 +317,3 @@ const OutputPanel: React.FC<OutputPanelProps> = ({
 
 export default OutputPanel;
 export type { OutputEntry, ExecutionMeta };
-export type { OutputHistoryItem };

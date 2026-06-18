@@ -539,6 +539,11 @@ const JsonPlayground: React.FC = () => {
     }
   }, 500);
 
+  const runCodeNow = useCallback(() => {
+    cancelStale();
+    void executeCode();
+  }, [cancelStale, executeCode]);
+
   // Auto-run on input change
   useEffect(() => {
     if (autoRun) {
@@ -807,12 +812,12 @@ const JsonPlayground: React.FC = () => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        executeCode();
+        runCodeNow();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [executeCode]);
+  }, [runCodeNow]);
 
   const shareUrl = useCallback(() => {
     try {
@@ -1408,7 +1413,7 @@ const JsonPlayground: React.FC = () => {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                onClick={executeCode}
+                onClick={runCodeNow}
                 size="sm"
                 className="h-7 gap-1 px-2 text-xs run-button bg-primary hover:bg-primary/90"
               >

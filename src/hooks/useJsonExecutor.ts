@@ -15,8 +15,10 @@ export function useJsonExecutor() {
       const runId = ++runIdRef.current;
       const startTime = performance.now();
       const result = runJsonScript(jsonInput, codeInput, { startTime });
-      if (runId !== runIdRef.current) return Promise.resolve(null);
-      return Promise.resolve(result);
+      return Promise.resolve(result).then((resolved) => {
+        if (runId !== runIdRef.current) return null;
+        return resolved;
+      });
     },
     []
   );

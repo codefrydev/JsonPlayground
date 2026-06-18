@@ -12,7 +12,7 @@ describe('parseJson', () => {
     const text = '{"a":]';
     const result = parseJson(text);
     expect(result.valid).toBe(false);
-    if (!result.valid && result.position !== undefined) {
+    if (result.valid === false && result.position !== undefined) {
       const { line, column } = offsetToLineCol(text, result.position);
       expect(result.line).toBe(line);
       expect(result.column).toBe(column);
