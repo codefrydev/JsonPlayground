@@ -1,6 +1,12 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { CheckCircle2, XCircle, Clock, Hash, Type, List, Braces, ChevronDown, ChevronRight, Copy } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, Hash, Type, List, Braces, ChevronDown, ChevronRight, Copy, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { highlight, type HighlightLanguage } from '@/lib/highlight';
 import OutputJsonView from '@/components/OutputJsonView';
@@ -21,10 +27,19 @@ interface ExecutionMeta {
 const TRUNCATE_CHARS = 500;
 const TRUNCATE_LINES = 10;
 
+export interface OutputHistoryItem {
+  output: OutputEntry[];
+  meta: ExecutionMeta;
+  timestamp: Date;
+}
+
 interface OutputPanelProps {
   entries: OutputEntry[];
   meta?: ExecutionMeta;
   isExecuting?: boolean;
+  onSendToJson?: (text: string) => void;
+  history?: OutputHistoryItem[];
+  onRestoreHistory?: (index: number) => void;
 }
 
 const getTypeIcon = (dataType?: string) => {
@@ -71,7 +86,14 @@ function getOutputLanguage(content: string): HighlightLanguage {
   }
 }
 
-const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting }) => {
+const OutputPanel: React.FC<OutputPanelProps> = ({
+  entries,
+  meta,
+  isExecuting,
+  onSendToJson,
+  history = [],
+  onRestoreHistory,
+}) => {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const { toast } = useToast();
 
@@ -165,6 +187,22 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
               Copy all
             </Button>
           )}
+          {history.length > 0 && onRestoreHistory && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 text-xs">
+                  History ({history.length})
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {history.map((item, index) => (
+                  <DropdownMenuItem key={index} onClick={() => onRestoreHistory(index)}>
+                    {item.timestamp.toLocaleTimeString()} — {item.output.length} entries
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {collapsibleIndices.length > 0 && (
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={expandAll}>
@@ -214,6 +252,18 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
                       </span>
                     )}
                     <div className="flex items-center gap-1 flex-1 justify-end min-w-0">
+                      {isJson && entry.type === 'result' && onSendToJson && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs gap-1 shrink-0"
+                          onClick={() => onSendToJson(formatted)}
+                          title="Send to JSON panel"
+                        >
+                          <ArrowRight className="w-3 h-3" />
+                          To JSON
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -267,3 +317,4 @@ const OutputPanel: React.FC<OutputPanelProps> = ({ entries, meta, isExecuting })
 
 export default OutputPanel;
 export type { OutputEntry, ExecutionMeta };
+export type { OutputHistoryItem };

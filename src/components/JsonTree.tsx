@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Copy, Code2, Braces, List, Type, Hash } from 'lucide-react';
 import {
   Collapsible,
@@ -48,10 +48,40 @@ function getValueType(value: unknown): string {
   return typeof value;
 }
 
+function valueToCopyText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value);
+}
+
+function nodeMatchesFilter(keyLabel: string, value: unknown, filter: string): boolean {
+  const q = filter.toLowerCase();
+  if (keyLabel.toLowerCase().includes(q)) return true;
+  if (typeof value === 'string' && value.toLowerCase().includes(q)) return true;
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).toLowerCase().includes(q);
+  }
+  return false;
+}
+
+function subtreeMatchesFilter(value: unknown, keyLabel: string, filter: string): boolean {
+  if (!filter) return true;
+  if (nodeMatchesFilter(keyLabel, value, filter)) return true;
+  if (value !== null && typeof value === 'object') {
+    if (Array.isArray(value)) {
+      return value.some((item, i) => subtreeMatchesFilter(item, `[${i}]`, filter));
+    }
+    return Object.entries(value as Record<string, unknown>).some(([k, v]) =>
+      subtreeMatchesFilter(v, k, filter)
+    );
+  }
+  return false;
+}
+
 interface JsonTreeProps {
   data: unknown;
   onCopyPath?: (path: string) => void;
   onInsertPath?: (path: string) => void;
+  filter?: string;
 }
 
 interface TreeNodeProps {
@@ -62,6 +92,7 @@ interface TreeNodeProps {
   onCopyPath: (path: string) => void;
   onInsertPath?: (path: string) => void;
   defaultOpen?: boolean;
+  filter?: string;
 }
 
 const TreeNode: React.FC<TreeNodeProps> = ({
@@ -72,14 +103,19 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   onCopyPath,
   onInsertPath,
   defaultOpen = false,
+  filter = '',
 }) => {
   const [open, setOpen] = useState(defaultOpen);
   const { toast } = useToast();
+
   const isObject = value !== null && typeof value === 'object';
   const isArray = Array.isArray(value);
-  const hasChildren = isObject && ((isArray && (value as unknown[]).length > 0) || (!isArray && Object.keys(value as object).length > 0));
+  const hasChildren =
+    isObject &&
+    ((isArray && (value as unknown[]).length > 0) ||
+      (!isArray && Object.keys(value as object).length > 0));
 
-  const handleCopy = useCallback(
+  const handleCopyPath = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
       onCopyPath(path);
@@ -89,6 +125,18 @@ const TreeNode: React.FC<TreeNodeProps> = ({
       );
     },
     [path, onCopyPath, toast]
+  );
+
+  const handleCopyValue = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const text = valueToCopyText(value);
+      navigator.clipboard.writeText(text).then(
+        () => toast({ title: 'Value copied', description: path }),
+        () => toast({ title: 'Copy failed', variant: 'destructive' })
+      );
+    },
+    [path, value, toast]
   );
 
   const handleInsert = useCallback(
@@ -102,7 +150,27 @@ const TreeNode: React.FC<TreeNodeProps> = ({
     [path, onInsertPath, toast]
   );
 
+  if (filter && !subtreeMatchesFilter(value, keyLabel, filter)) {
+    return null;
+  }
+
   const paddingLeft = 12 + depth * 16;
+
+  const actionButtons = (
+    <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopyPath} title="Copy path">
+        <Copy className="w-3 h-3" />
+      </Button>
+      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopyValue} title="Copy value">
+        <Copy className="w-3 h-3 text-primary" />
+      </Button>
+      {onInsertPath && (
+        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleInsert} title="Use in code">
+          <Code2 className="w-3 h-3" />
+        </Button>
+      )}
+    </div>
+  );
 
   if (!hasChildren) {
     return (
@@ -122,16 +190,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
         >
           {getPreview(value)}
         </span>
-        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy} title="Copy path">
-            <Copy className="w-3 h-3" />
-          </Button>
-          {onInsertPath && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleInsert} title="Use in code">
-              <Code2 className="w-3 h-3" />
-            </Button>
-          )}
-        </div>
+        {actionButtons}
       </div>
     );
   }
@@ -155,7 +214,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
           </button>
         </CollapsibleTrigger>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 shrink-0 py-0.5 pr-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopy} title="Copy path">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopyPath} title="Copy path">
             <Copy className="w-3 h-3" />
           </Button>
           {onInsertPath && (
@@ -167,37 +226,65 @@ const TreeNode: React.FC<TreeNodeProps> = ({
       </div>
       <CollapsibleContent>
         {isArray
-            ? (value as unknown[]).map((item, index) => (
-                <TreeNode
-                  key={`${path}[${index}]`}
-                  path={`${path}[${index}]`}
-                  keyLabel={`[${index}]`}
-                  value={item}
-                  depth={depth + 1}
-                  onCopyPath={onCopyPath}
-                  onInsertPath={onInsertPath}
-                  defaultOpen={depth === 0}
-                />
-              ))
-            : Object.entries(value as Record<string, unknown>).map(([k, v]) => (
-                <TreeNode
-                  key={`${path}.${k}`}
-                  path={`${path}.${k}`}
-                  keyLabel={k}
-                  value={v}
-                  depth={depth + 1}
-                  onCopyPath={onCopyPath}
-                  onInsertPath={onInsertPath}
-                  defaultOpen={depth === 0}
-                />
-              ))}
+          ? (value as unknown[]).map((item, index) => (
+              <TreeNode
+                key={`${path}[${index}]`}
+                path={`${path}[${index}]`}
+                keyLabel={`[${index}]`}
+                value={item}
+                depth={depth + 1}
+                onCopyPath={onCopyPath}
+                onInsertPath={onInsertPath}
+                defaultOpen={depth === 0}
+                filter={filter}
+              />
+            ))
+          : Object.entries(value as Record<string, unknown>).map(([k, v]) => (
+              <TreeNode
+                key={`${path}.${k}`}
+                path={`${path}.${k}`}
+                keyLabel={k}
+                value={v}
+                depth={depth + 1}
+                onCopyPath={onCopyPath}
+                onInsertPath={onInsertPath}
+                defaultOpen={depth === 0}
+                filter={filter}
+              />
+            ))}
       </CollapsibleContent>
     </Collapsible>
   );
 };
 
-const JsonTree: React.FC<JsonTreeProps> = ({ data, onCopyPath, onInsertPath }) => {
+const JsonTree: React.FC<JsonTreeProps> = ({
+  data,
+  onCopyPath,
+  onInsertPath,
+  filter = '',
+}) => {
   const copyPath = onCopyPath ?? (() => {});
+
+  const entries = useMemo(() => {
+    if (data === null || data === undefined || typeof data !== 'object') return [];
+    if (Array.isArray(data)) {
+      return (data as unknown[]).map((item, index) => ({
+        key: `[${index}]`,
+        path: `data[${index}]`,
+        value: item,
+      }));
+    }
+    return Object.entries(data as object).map(([key, value]) => ({
+      key,
+      path: `data.${key}`,
+      value,
+    }));
+  }, [data]);
+
+  const visibleEntries = useMemo(
+    () => entries.filter(({ key, value }) => subtreeMatchesFilter(value, key, filter)),
+    [entries, filter]
+  );
 
   if (data === null || data === undefined) {
     return (
@@ -216,14 +303,15 @@ const JsonTree: React.FC<JsonTreeProps> = ({ data, onCopyPath, onInsertPath }) =
     );
   }
 
-  const isArray = Array.isArray(data);
-  const entries = isArray
-    ? (data as unknown[]).map((item, index) => ({ key: `[${index}]`, path: `data[${index}]`, value: item }))
-    : Object.entries(data as object).map(([key, value]) => ({ key, path: `data.${key}`, value }));
+  if (filter && visibleEntries.length === 0) {
+    return (
+      <div className="p-4 text-center text-sm text-muted-foreground">No matches for &quot;{filter}&quot;</div>
+    );
+  }
 
   return (
     <div className="overflow-auto editor-scrollbar py-2">
-      {entries.map(({ key, path, value }) => (
+      {visibleEntries.map(({ key, path, value }) => (
         <TreeNode
           key={path}
           path={path}
@@ -232,7 +320,8 @@ const JsonTree: React.FC<JsonTreeProps> = ({ data, onCopyPath, onInsertPath }) =
           depth={0}
           onCopyPath={copyPath}
           onInsertPath={onInsertPath}
-          defaultOpen={true}
+          defaultOpen
+          filter={filter}
         />
       ))}
     </div>

@@ -1,9 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
-import { json } from '@codemirror/lang-json';
+import { json, jsonParseLinter } from '@codemirror/lang-json';
+import { linter, type Diagnostic } from '@codemirror/lint';
 import { ViewPlugin, Decoration, EditorView } from '@codemirror/view';
 import type { DecorationSet, ViewUpdate } from '@codemirror/view';
 import { RangeSetBuilder } from '@codemirror/state';
+import type { JsonParseResult } from '@/lib/json-parse';
+import { parseJson } from '@/lib/json-parse';
 
 function buildIndentDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
@@ -49,6 +52,9 @@ interface JsonEditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   readOnly?: boolean;
+  onParseError?: (result: JsonParseResult) => void;
+  jumpToPosition?: number | null;
+  getExtraDiagnostics?: (text: string) => Diagnostic[];
 }
 
 const JsonEditor: React.FC<JsonEditorProps> = ({
@@ -56,15 +62,39 @@ const JsonEditor: React.FC<JsonEditorProps> = ({
   onChange,
   placeholder = 'Enter your JSON here...',
   readOnly = false,
+  onParseError,
+  jumpToPosition,
+  getExtraDiagnostics,
 }) => {
-  const extensions = useMemo(
-    () => [
+  const viewRef = useRef<EditorView | null>(null);
+
+  const extensions = useMemo(() => {
+    const parseLinter = jsonParseLinter();
+    return [
       json(),
       EditorView.lineWrapping,
       indentedWrapping,
-    ],
-    []
-  );
+      linter((view) => {
+        const parseDiags = parseLinter(view);
+        if (!getExtraDiagnostics) return parseDiags;
+        return [...parseDiags, ...getExtraDiagnostics(view.state.doc.toString())];
+      }),
+    ];
+  }, [getExtraDiagnostics]);
+
+  useEffect(() => {
+    onParseError?.(parseJson(value));
+  }, [value, onParseError]);
+
+  useEffect(() => {
+    if (jumpToPosition == null || !viewRef.current) return;
+    const view = viewRef.current;
+    const pos = Math.max(0, Math.min(jumpToPosition, view.state.doc.length));
+    view.dispatch({
+      selection: { anchor: pos },
+      scrollIntoView: true,
+    });
+  }, [jumpToPosition]);
 
   return (
     <div className="json-editor-codemirror flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md">
@@ -92,6 +122,9 @@ const JsonEditor: React.FC<JsonEditorProps> = ({
         }}
         extensions={extensions}
         onChange={onChange}
+        onCreateEditor={(view) => {
+          viewRef.current = view;
+        }}
       />
     </div>
   );

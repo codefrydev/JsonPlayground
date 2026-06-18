@@ -17,17 +17,31 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Play, Trash2, FileJson, Code2, Terminal, Zap, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2, Plus, X, FileDown, LayoutGrid } from 'lucide-react';
-import CodeEditor from './CodeEditor';
+import { Play, Trash2, FileJson, Code2, Terminal, Zap, GitBranch, AlignLeft, Minus, Upload, Link, ListOrdered, Share2, Plus, X, FileDown, LayoutGrid, Download, ArrowDownAZ, HelpCircle, GitCompare, Search, FileUp } from 'lucide-react';
+import JsCodeEditor from './JsCodeEditor';
+import JsonDiffDialog from './JsonDiffDialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import JsonEditor from './JsonEditor';
 import PanelHeader from './PanelHeader';
-import OutputPanel, { OutputEntry, ExecutionMeta } from './OutputPanel';
+import OutputPanel, { OutputEntry, ExecutionMeta, OutputHistoryItem } from './OutputPanel';
 import JsonTree from './JsonTree';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useToast } from '@/hooks/use-toast';
 import { CODE_SNIPPETS } from '@/hooks/useAutocomplete';
-import Queryable from '@/lib/Queryable';
+import { parseJson, sortJsonKeys, jsonStatusFromParse, type JsonParseResult } from '@/lib/json-parse';
+import { downloadText } from '@/lib/download';
+import { useJsonExecutor } from '@/hooks/useJsonExecutor';
+import { buildShareUrl, decodeShare } from '@/lib/share-state';
+import { JSON_SAMPLES } from '@/lib/json-samples';
 import { jsonToXaml } from '@/lib/xaml-json-convert';
+import { jsonToYaml } from '@/lib/yaml-json-convert';
+import { jsonToCsv } from '@/lib/csv-json-convert';
+import { jsonToToml } from '@/lib/toml-json-convert';
+import { jsonToEnv } from '@/lib/env-json-convert';
+import { validateAgainstSchema, schemaToDiagnostics } from '@/lib/json-schema-validate';
+import type { Diagnostic } from '@codemirror/lint';
 import type { PanelId } from '@/lib/playground-types';
 import {
   type LayoutNode,
@@ -67,30 +81,11 @@ Dump(names);
 // LINQ-style (C#-friendly):
 Dump(Queryable.From(data.posts).Where(p => p.id==1).ToArray());`;
 
-const getDataType = (value: unknown): string => {
-  if (value === null) return 'null';
-  if (Array.isArray(value)) return 'array';
-  return typeof value;
-};
-
-const getDataShape = (data: unknown): string => {
-  if (data === null) return 'null';
-  if (Array.isArray(data)) {
-    return `Array[${data.length}]`;
-  }
-  if (typeof data === 'object') {
-    const keys = Object.keys(data as object);
-    if (keys.length <= 3) {
-      return `{ ${keys.join(', ')} }`;
-    }
-    return `Object { ${keys.length} keys }`;
-  }
-  return typeof data;
-};
-
 const STORAGE_KEY = 'json-playground-state';
 const SHARE_PARAM = 's';
-const MAX_SHARE_LENGTH = 1800;
+const HELP_DISMISSED_KEY = 'json-playground-help-dismissed';
+const SCHEMA_STORAGE_KEY = 'json-playground-schema';
+const SESSION_EXPORT_VERSION = 1;
 
 const PANEL_LABELS: Record<PanelId, string> = {
   json: 'JSON Data',
@@ -403,6 +398,9 @@ const JsonPlayground: React.FC = () => {
   const [jsonStatus, setJsonStatus] = useState<{
     valid: boolean;
     error?: string;
+    line?: number;
+    column?: number;
+    position?: number;
   }>({ valid: true });
 
   const [parsedJsonData, setParsedJsonData] = useState<unknown>(null);
@@ -410,20 +408,34 @@ const JsonPlayground: React.FC = () => {
   const [loadUrlOpen, setLoadUrlOpen] = useState(false);
   const [loadUrlValue, setLoadUrlValue] = useState('');
   const [layout, setLayout] = useState<LayoutNode>(loadLayoutWithMigration);
-  const { toast } = useToast();
-  const executionRunIdRef = useRef(0);
-  const executionTimedOutRef = useRef(false);
-  const EXECUTION_TIMEOUT_MS = 5000;
-
-  const validateJson = useCallback((json: string): { valid: boolean; data?: unknown; error?: string } => {
+  const [showHelpBanner, setShowHelpBanner] = useState(() => {
     try {
-      const data = JSON.parse(json);
-      return { valid: true, data };
-    } catch (e) {
-      const error = e instanceof Error ? e.message : 'Invalid JSON';
-      return { valid: false, error };
+      return localStorage.getItem(HELP_DISMISSED_KEY) !== '1';
+    } catch {
+      return true;
     }
-  }, []);
+  });
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [schemaOpen, setSchemaOpen] = useState(false);
+  const [schemaText, setSchemaText] = useState(() => {
+    try {
+      return localStorage.getItem(SCHEMA_STORAGE_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  });
+  const [schemaValidateEnabled, setSchemaValidateEnabled] = useState(false);
+  const [schemaValid, setSchemaValid] = useState<boolean | null>(null);
+  const [treeFilter, setTreeFilter] = useState('');
+  const [jumpToPosition, setJumpToPosition] = useState<number | null>(null);
+  const [outputHistory, setOutputHistory] = useState<OutputHistoryItem[]>([]);
+  const [highlightTreePath, setHighlightTreePath] = useState<string | null>(null);
+  const { toast } = useToast();
+  const { execute: runCode, cancelStale } = useJsonExecutor();
+  const sessionImportRef = useRef<HTMLInputElement>(null);
+
+  const validateJson = useCallback((json: string): JsonParseResult => parseJson(json), []);
 
   // Restore from URL share param on mount (once)
   const hasRestoredFromUrl = useRef(false);
@@ -434,8 +446,8 @@ const JsonPlayground: React.FC = () => {
     if (!share) return;
     hasRestoredFromUrl.current = true;
     try {
-      const decoded = JSON.parse(decodeURIComponent(atob(share))) as { j?: string; c?: string };
-      if (typeof decoded?.j === 'string' && typeof decoded?.c === 'string') {
+      const decoded = decodeShare(share);
+      if (decoded) {
         setJsonInput(decoded.j);
         setCodeInput(decoded.c);
         window.history.replaceState({}, '', window.location.pathname);
@@ -474,311 +486,56 @@ const JsonPlayground: React.FC = () => {
     saveLayout(layout);
   }, [layout]);
 
-  // Keep parsed JSON data in sync for autocomplete
   useEffect(() => {
     const result = validateJson(jsonInput);
     if (result.valid) {
       setParsedJsonData(result.data);
-    }
-  }, [jsonInput, validateJson]);
-
-  const executeCode = useCallback(() => {
-    const startTime = performance.now();
-    const newOutput: OutputEntry[] = [];
-
-    const jsonResult = validateJson(jsonInput);
-    setJsonStatus({ valid: jsonResult.valid, error: jsonResult.error });
-
-    if (!jsonResult.valid) {
-      const endTime = performance.now();
-      newOutput.push({
-        type: 'error',
-        content: `JSON Parse Error: ${jsonResult.error}\n\nTip: Check for missing commas, quotes, or brackets.`,
-        timestamp: new Date(),
-      });
-      setOutput(newOutput);
-      setMeta({
-        executionTime: endTime - startTime,
-        jsonValid: false,
-      });
-      return;
-    }
-
-    const data = jsonResult.data;
-
-    try {
-      // Create custom console
-      const logs: { type: 'log' | 'error'; content: string; dataType: string }[] = [];
-      const customConsole = {
-        log: (...args: unknown[]) => {
-          args.forEach((arg) => {
-            const formatted = typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg);
-            logs.push({ type: 'log', content: formatted, dataType: getDataType(arg) });
-          });
-        },
-        error: (...args: unknown[]) => {
-          args.forEach((arg) => {
-            const formatted = typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg);
-            logs.push({ type: 'error', content: `Error: ${formatted}`, dataType: 'error' });
-          });
-        },
-        info: (...args: unknown[]) => {
-          args.forEach((arg) => {
-            const formatted = typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg);
-            logs.push({ type: 'log', content: formatted, dataType: getDataType(arg) });
-          });
-        },
-      };
-
-      // Clean up code - remove comments that are just comments
-      const cleanCode = codeInput
-        .split('\n')
-        .filter(line => {
-          const trimmed = line.trim();
-          return trimmed && !trimmed.startsWith('//');
-        })
-        .join('\n');
-
-      if (!cleanCode.trim()) {
-        setOutput([{
-          type: 'info',
-          content: '// Write some code to see results\n// Use Dump(value) to display output. Example: Dump(data.user.name)',
-          timestamp: new Date(),
-        }]);
-        setMeta({
-          jsonValid: true,
-          dataShape: getDataShape(data),
-        });
-        return;
-      }
-
-      const usesDump = cleanCode.includes('Dump(');
-
-      const runId = ++executionRunIdRef.current;
-      executionTimedOutRef.current = false;
-      setIsExecuting(true);
-
-      const timeoutId = setTimeout(() => {
-        if (executionRunIdRef.current !== runId) return;
-        executionTimedOutRef.current = true;
-        setOutput((prev) => [
-          ...prev,
-          {
-            type: 'error',
-            content: `Execution timed out (${EXECUTION_TIMEOUT_MS / 1000}s).`,
-            timestamp: new Date(),
-          },
-        ]);
-        setMeta((m) => ({ ...m, jsonValid: true, dataShape: getDataShape(data) }));
-        setIsExecuting(false);
-      }, EXECUTION_TIMEOUT_MS);
-
-      if (usesDump) {
-        // Dump-only path: run full script with Dump injected; output only what's passed to Dump (and console)
-        const dumpValues: unknown[] = [];
-        const Dump = (...args: unknown[]) => {
-          args.forEach((v) => dumpValues.push(v));
-        };
-        setTimeout(() => {
-          try {
-            const fn = new Function('data', 'console', 'Dump', 'Queryable', `"use strict";\n${cleanCode}`) as (d: unknown, c: typeof customConsole, Dump: (...args: unknown[]) => void, Q: unknown) => void;
-            fn(data, customConsole, Dump, Queryable);
-
-            const endTime = performance.now();
-            if (executionTimedOutRef.current) return;
-
-            logs.forEach((log) => {
-              newOutput.push({
-                type: log.type,
-                content: log.content,
-                timestamp: new Date(),
-                dataType: log.dataType,
-              });
-            });
-            for (const value of dumpValues) {
-              const resultStr = typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : String(value);
-              newOutput.push({
-                type: 'result',
-                content: resultStr,
-                timestamp: new Date(),
-                dataType: getDataType(value),
-              });
-            }
-            if (newOutput.length === 0) {
-              newOutput.push({
-                type: 'info',
-                content: 'No output. Use Dump(value) to display results.',
-                timestamp: new Date(),
-              });
-            }
-            setOutput(newOutput);
-            setMeta({
-              executionTime: endTime - startTime,
-              jsonValid: true,
-              dataShape: getDataShape(data),
-            });
-          } catch (e) {
-            if (executionTimedOutRef.current) return;
-            const endTime = performance.now();
-            const error = e instanceof Error ? e.message : 'Execution error';
-            let helpfulMessage = error;
-            if (error.includes('is not defined')) {
-              const varName = error.split(' ')[0];
-              helpfulMessage = `${error}\n\n💡 Tip: Use 'data.${varName}' to access JSON properties.`;
-            } else if (error.includes('Cannot read properties of undefined')) {
-              helpfulMessage = `${error}\n\n💡 Tip: The property path doesn't exist in your JSON. Check the structure.`;
-            } else if (error.includes('is not a function')) {
-              helpfulMessage = `${error}\n\n💡 Tip: You're trying to call something that isn't a function.`;
-            }
-            newOutput.push({
-              type: 'error',
-              content: helpfulMessage,
-              timestamp: new Date(),
-            });
-            setOutput(newOutput);
-            setMeta({
-              executionTime: endTime - startTime,
-              jsonValid: true,
-              dataShape: getDataShape(data),
-            });
-          } finally {
-            clearTimeout(timeoutId);
-            if (!executionTimedOutRef.current) setIsExecuting(false);
-          }
-        }, 0);
-        return;
-      }
-
-      // Legacy path: no Dump in code — single return or per-line results
-      const lines = cleanCode
-        .split('\n')
-        .map((l) => l.trim())
-        .filter(Boolean);
-      const hasExplicitReturn = cleanCode.includes('return');
-      const multiResult = !hasExplicitReturn && lines.length > 1;
-
-      type ExecFn = (d: unknown, c: typeof customConsole, Q: unknown) => unknown;
-      let fn: ExecFn;
-      if (hasExplicitReturn) {
-        fn = new Function('data', 'console', 'Queryable', `"use strict";\n${cleanCode}`) as ExecFn;
-      } else if (lines.length === 1) {
-        fn = new Function('data', 'console', 'Queryable', `"use strict";\nreturn (${lines[0]})`) as ExecFn;
+      if (schemaValidateEnabled && schemaText.trim()) {
+        const schemaResult = validateAgainstSchema(result.data, schemaText);
+        setSchemaValid(schemaResult.valid);
       } else {
-        fn = new Function('data', 'console', 'Queryable', `"use strict";\nreturn (undefined)`) as ExecFn;
+        setSchemaValid(null);
       }
-
-      setTimeout(() => {
-        try {
-          let results: unknown[];
-          if (multiResult) {
-            results = [];
-            for (const line of lines) {
-              const lineFn = new Function('data', 'console', 'Queryable', `"use strict"; return (${line})`) as ExecFn;
-              results.push(lineFn(data, customConsole, Queryable));
-            }
-          } else {
-            const single = fn(data, customConsole, Queryable);
-            results = single !== undefined ? [single] : [];
-          }
-
-          const endTime = performance.now();
-          if (executionTimedOutRef.current) return;
-
-          logs.forEach((log) => {
-            newOutput.push({
-              type: log.type,
-              content: log.content,
-              timestamp: new Date(),
-              dataType: log.dataType,
-            });
-          });
-          for (const result of results) {
-            const resultStr = typeof result === 'object' && result !== null ? JSON.stringify(result, null, 2) : String(result);
-            newOutput.push({
-              type: 'result',
-              content: resultStr,
-              timestamp: new Date(),
-              dataType: getDataType(result),
-            });
-          }
-          if (newOutput.length === 0) {
-            newOutput.push({
-              type: 'info',
-              content: 'undefined',
-              timestamp: new Date(),
-              dataType: 'undefined',
-            });
-          }
-          setOutput(newOutput);
-          setMeta({
-            executionTime: endTime - startTime,
-            jsonValid: true,
-            dataShape: getDataShape(data),
-          });
-        } catch (e) {
-          if (executionTimedOutRef.current) return;
-          const endTime = performance.now();
-          const error = e instanceof Error ? e.message : 'Execution error';
-          let helpfulMessage = error;
-          if (error.includes('is not defined')) {
-            const varName = error.split(' ')[0];
-            helpfulMessage = `${error}\n\n💡 Tip: Use 'data.${varName}' to access JSON properties.`;
-          } else if (error.includes('Cannot read properties of undefined')) {
-            helpfulMessage = `${error}\n\n💡 Tip: The property path doesn't exist in your JSON. Check the structure.`;
-          } else if (error.includes('is not a function')) {
-            helpfulMessage = `${error}\n\n💡 Tip: You're trying to call something that isn't a function.`;
-          }
-          newOutput.push({
-            type: 'error',
-            content: helpfulMessage,
-            timestamp: new Date(),
-          });
-          setOutput(newOutput);
-          setMeta({
-            executionTime: endTime - startTime,
-            jsonValid: true,
-            dataShape: getDataShape(data),
-          });
-        } finally {
-          clearTimeout(timeoutId);
-          if (!executionTimedOutRef.current) setIsExecuting(false);
-        }
-      }, 0);
-      return;
-    } catch (e) {
-      const endTime = performance.now();
-      const error = e instanceof Error ? e.message : 'Execution error';
-      let helpfulMessage = error;
-      if (error.includes('is not defined')) {
-        const varName = error.split(' ')[0];
-        helpfulMessage = `${error}\n\n💡 Tip: Use 'data.${varName}' to access JSON properties.`;
-      } else if (error.includes('Cannot read properties of undefined')) {
-        helpfulMessage = `${error}\n\n💡 Tip: The property path doesn't exist in your JSON. Check the structure.`;
-      } else if (error.includes('is not a function')) {
-        helpfulMessage = `${error}\n\n💡 Tip: You're trying to call something that isn't a function.`;
-      }
-      newOutput.push({
-        type: 'error',
-        content: helpfulMessage,
-        timestamp: new Date(),
-      });
-      setOutput(newOutput);
-      setMeta({
-        executionTime: endTime - startTime,
-        jsonValid: true,
-        dataShape: getDataShape(data),
-      });
     }
+  }, [jsonInput, validateJson, schemaValidateEnabled, schemaText]);
 
-    setIsExecuting(false);
-  }, [jsonInput, codeInput, validateJson]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(SCHEMA_STORAGE_KEY, schemaText);
+    } catch {
+      /* ignore */
+    }
+  }, [schemaText]);
+
+  const pushOutputHistory = useCallback((newOutput: OutputEntry[], newMeta: ExecutionMeta) => {
+    if (newOutput.length === 0) return;
+    setOutputHistory((prev) => [
+      { output: newOutput, meta: newMeta, timestamp: new Date() },
+      ...prev,
+    ].slice(0, 5));
+  }, []);
+
+  const executeCode = useCallback(async () => {
+    const jsonResult = validateJson(jsonInput);
+    setJsonStatus(jsonStatusFromParse(jsonResult));
+
+    setIsExecuting(true);
+    try {
+      const result = await runCode(jsonInput, codeInput);
+      if (!result) return;
+      setOutput(result.output);
+      setMeta(result.meta);
+      pushOutputHistory(result.output, result.meta);
+    } finally {
+      setIsExecuting(false);
+    }
+  }, [jsonInput, codeInput, validateJson, runCode, pushOutputHistory]);
 
   // Debounced execution
   const debouncedExecute = useDebounce(() => {
     if (autoRun) {
-      setIsExecuting(true);
-      // Small delay for visual feedback
-      setTimeout(executeCode, 50);
+      cancelStale();
+      void executeCode();
     }
   }, 500);
 
@@ -792,8 +549,182 @@ const JsonPlayground: React.FC = () => {
   const handleJsonChange = useCallback((value: string) => {
     setJsonInput(value);
     const result = validateJson(value);
-    setJsonStatus({ valid: result.valid, error: result.error });
+    setJsonStatus(jsonStatusFromParse(result));
   }, [validateJson]);
+
+  const getSchemaDiagnostics = useCallback(
+    (text: string): Diagnostic[] => {
+      if (!schemaValidateEnabled || !schemaText.trim()) return [];
+      return schemaToDiagnostics(schemaText, text);
+    },
+    [schemaValidateEnabled, schemaText]
+  );
+
+  const invalidateToast = useCallback(
+    (result: JsonParseResult) => {
+      if (result.valid === false) {
+        toast({ title: 'Invalid JSON', description: result.error, variant: 'destructive' });
+      }
+    },
+    [toast]
+  );
+
+  const downloadJson = useCallback(() => {
+    const result = validateJson(jsonInput);
+    if (result.valid === false) {
+      invalidateToast(result);
+      return;
+    }
+    downloadText('data.json', jsonInput);
+    toast({ title: 'Downloaded', description: 'data.json' });
+  }, [jsonInput, validateJson, toast, invalidateToast]);
+
+  const sortKeys = useCallback(() => {
+    const result = validateJson(jsonInput);
+    if (result.valid === false) {
+      invalidateToast(result);
+      return;
+    }
+    setJsonInput(JSON.stringify(sortJsonKeys(result.data), null, 2));
+    toast({ title: 'Sorted', description: 'Object keys sorted' });
+  }, [jsonInput, validateJson, toast, invalidateToast]);
+
+  const applySample = useCallback((sampleId: string) => {
+    const sample = JSON_SAMPLES.find((s) => s.id === sampleId);
+    if (!sample) return;
+    setJsonInput(sample.json);
+    if (sample.code) setCodeInput(sample.code);
+    toast({ title: 'Sample loaded', description: sample.label });
+  }, [toast]);
+
+  const copyConverted = useCallback(
+    (format: string, text: string) => {
+      navigator.clipboard.writeText(text).then(
+        () => toast({ title: 'Copied', description: `JSON converted to ${format} and copied` }),
+        () => toast({ title: 'Copy failed', variant: 'destructive' })
+      );
+    },
+    [toast]
+  );
+
+  const convertJson = useCallback(
+    (format: 'xaml' | 'yaml' | 'csv' | 'toml' | 'env' | 'xml') => {
+      const result = validateJson(jsonInput);
+      if (result.valid === false) {
+        invalidateToast(result);
+        return;
+      }
+      let converted: { ok: true; text: string } | { ok: false; error: string };
+      switch (format) {
+        case 'xaml':
+        case 'xml': {
+          const r = jsonToXaml(jsonInput);
+          if (r.ok === false) converted = { ok: false, error: r.error };
+          else converted = { ok: true, text: r.xaml };
+          break;
+        }
+        case 'yaml': {
+          const r = jsonToYaml(jsonInput);
+          if (r.ok === false) converted = { ok: false, error: r.error };
+          else converted = { ok: true, text: r.yaml };
+          break;
+        }
+        case 'csv': {
+          const r = jsonToCsv(jsonInput);
+          if (r.ok === false) converted = { ok: false, error: r.error };
+          else converted = { ok: true, text: r.csv };
+          break;
+        }
+        case 'toml': {
+          const r = jsonToToml(jsonInput);
+          if (r.ok === false) converted = { ok: false, error: r.error };
+          else converted = { ok: true, text: r.toml };
+          break;
+        }
+        case 'env': {
+          const r = jsonToEnv(jsonInput);
+          if (r.ok === false) converted = { ok: false, error: r.error };
+          else converted = { ok: true, text: r.env };
+          break;
+        }
+      }
+      if (converted.ok === false) {
+        toast({ title: 'Conversion failed', description: converted.error, variant: 'destructive' });
+        return;
+      }
+      copyConverted(format.toUpperCase(), converted.text);
+    },
+    [jsonInput, validateJson, toast, copyConverted, invalidateToast]
+  );
+
+  const exportSession = useCallback(() => {
+    const payload = JSON.stringify(
+      { version: SESSION_EXPORT_VERSION, json: jsonInput, code: codeInput },
+      null,
+      2
+    );
+    downloadText('session.jsonplayground.json', payload);
+    toast({ title: 'Exported', description: 'Session file downloaded' });
+  }, [jsonInput, codeInput, toast]);
+
+  const importSession = useCallback(() => {
+    sessionImportRef.current?.click();
+  }, []);
+
+  const handleSessionImport = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result as string) as {
+            json?: string;
+            code?: string;
+          };
+          if (typeof parsed.json === 'string') setJsonInput(parsed.json);
+          if (typeof parsed.code === 'string') setCodeInput(parsed.code);
+          toast({ title: 'Imported', description: file.name });
+        } catch {
+          toast({ title: 'Import failed', description: 'Invalid session file', variant: 'destructive' });
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    },
+    [toast]
+  );
+
+  const dismissHelp = useCallback((permanent: boolean) => {
+    setShowHelpBanner(false);
+    if (permanent) {
+      try {
+        localStorage.setItem(HELP_DISMISSED_KEY, '1');
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
+
+  const sendToJson = useCallback(
+    (text: string) => {
+      try {
+        const parsed = JSON.parse(text);
+        setJsonInput(JSON.stringify(parsed, null, 2));
+        toast({ title: 'Sent to JSON', description: 'Output loaded in JSON panel' });
+      } catch {
+        toast({ title: 'Invalid JSON', description: 'Cannot send non-JSON output', variant: 'destructive' });
+      }
+    },
+    [toast]
+  );
+
+  const restoreHistory = useCallback((index: number) => {
+    const item = outputHistory[index];
+    if (!item) return;
+    setOutput(item.output);
+    setMeta(item.meta);
+  }, [outputHistory]);
 
   const clearOutput = () => {
     setOutput([]);
@@ -802,23 +733,23 @@ const JsonPlayground: React.FC = () => {
 
   const formatJson = useCallback(() => {
     const result = validateJson(jsonInput);
-    if (!result.valid) {
-      toast({ title: 'Invalid JSON', description: result.error, variant: 'destructive' });
+    if (result.valid === false) {
+      invalidateToast(result);
       return;
     }
     setJsonInput(JSON.stringify(result.data, null, 2));
     toast({ title: 'Formatted', description: 'JSON formatted with 2-space indent' });
-  }, [jsonInput, validateJson, toast]);
+  }, [jsonInput, validateJson, toast, invalidateToast]);
 
   const minifyJson = useCallback(() => {
     const result = validateJson(jsonInput);
-    if (!result.valid) {
-      toast({ title: 'Invalid JSON', description: result.error, variant: 'destructive' });
+    if (result.valid === false) {
+      invalidateToast(result);
       return;
     }
     setJsonInput(JSON.stringify(result.data));
     toast({ title: 'Minified', description: 'JSON minified' });
-  }, [jsonInput, validateJson, toast]);
+  }, [jsonInput, validateJson, toast, invalidateToast]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loadFromFile = useCallback(() => {
@@ -885,32 +816,27 @@ const JsonPlayground: React.FC = () => {
 
   const shareUrl = useCallback(() => {
     try {
-      const payload = btoa(encodeURIComponent(JSON.stringify({ j: jsonInput, c: codeInput })));
-      if (payload.length > MAX_SHARE_LENGTH) {
-        toast({ title: 'Content too large', description: 'Try shortening JSON or code to share via URL.', variant: 'destructive' });
-        return;
-      }
-      const url = `${window.location.origin}${window.location.pathname}?${SHARE_PARAM}=${encodeURIComponent(payload)}`;
+      const url = buildShareUrl(window.location.origin, window.location.pathname, {
+        j: jsonInput,
+        c: codeInput,
+      });
       navigator.clipboard.writeText(url).then(
         () => toast({ title: 'Link copied', description: 'Share this URL to open this state' }),
         () => toast({ title: 'Copy failed', variant: 'destructive' })
       );
-    } catch {
-      toast({ title: 'Share failed', variant: 'destructive' });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '';
+      if (msg === 'CONTENT_TOO_LARGE') {
+        toast({
+          title: 'Content too large',
+          description: 'Try shortening JSON or code, or export a session file.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({ title: 'Share failed', variant: 'destructive' });
+      }
     }
   }, [jsonInput, codeInput, toast]);
-
-  const convertToXaml = useCallback(() => {
-    const result = jsonToXaml(jsonInput);
-    if (result.ok === false) {
-      toast({ title: 'Conversion failed', description: result.error, variant: 'destructive' });
-      return;
-    }
-    navigator.clipboard.writeText(result.xaml).then(
-      () => toast({ title: 'Copied as XAML', description: 'JSON converted to XAML and copied to clipboard' }),
-      () => toast({ title: 'Copy failed', variant: 'destructive' })
-    );
-  }, [jsonInput, toast]);
 
   const restoreSession = useCallback(() => {
     const saved = savedStateRef.current;
@@ -987,9 +913,16 @@ const JsonPlayground: React.FC = () => {
         return (
           <div className="h-full flex flex-col border-r border-border">
             <PanelHeader
-              title="JSON Data"
-              status={jsonStatus.valid ? 'valid' : 'neutral'}
-              statusText={jsonStatus.valid ? '✓ Valid' : undefined}
+              status={jsonStatus.valid ? 'valid' : 'invalid'}
+              statusText={
+                jsonStatus.valid
+                  ? schemaValid === false
+                    ? 'Schema invalid'
+                    : schemaValid === true
+                      ? '✓ Valid · Schema OK'
+                      : '✓ Valid'
+                  : undefined
+              }
               actions={
                 <div className="flex items-center gap-2">
                   <input
@@ -999,6 +932,54 @@ const JsonPlayground: React.FC = () => {
                     className="hidden"
                     onChange={handleFileChange}
                   />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 text-xs px-2">
+                        Samples
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {JSON_SAMPLES.map((sample) => (
+                        <DropdownMenuItem key={sample.id} onClick={() => applySample(sample.id)}>
+                          {sample.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Dialog open={schemaOpen} onOpenChange={setSchemaOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 text-xs px-2">
+                        Schema
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>JSON Schema</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={schemaValidateEnabled}
+                            onCheckedChange={setSchemaValidateEnabled}
+                            id="schema-validate"
+                          />
+                          <Label htmlFor="schema-validate">Validate against schema</Label>
+                        </div>
+                        <Textarea
+                          value={schemaText}
+                          onChange={(e) => setSchemaText(e.target.value)}
+                          placeholder='{"type":"object",...}'
+                          className="font-mono text-xs min-h-[160px]"
+                        />
+                        {schemaValidateEnabled && parsedJsonData != null && (
+                          <p className="text-xs text-muted-foreground">
+                            {schemaValid === true && 'Data matches schema.'}
+                            {schemaValid === false && 'Data does not match schema (see editor diagnostics).'}
+                          </p>
+                        )}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={loadFromFile}>
@@ -1053,6 +1034,22 @@ const JsonPlayground: React.FC = () => {
                     </TooltipTrigger>
                     <TooltipContent>Minify JSON</TooltipContent>
                   </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={downloadJson}>
+                        <Download className="w-3.5 h-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Download JSON</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={sortKeys}>
+                        <ArrowDownAZ className="w-3.5 h-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Sort keys</TooltipContent>
+                  </Tooltip>
                 </div>
               }
             />
@@ -1062,12 +1059,32 @@ const JsonPlayground: React.FC = () => {
                   value={jsonInput}
                   onChange={handleJsonChange}
                   placeholder="Enter your JSON here..."
+                  jumpToPosition={jumpToPosition}
+                  getExtraDiagnostics={getSchemaDiagnostics}
                 />
               </div>
             </div>
             {!jsonStatus.valid && jsonStatus.error && (
-              <footer className="shrink-0 px-3 py-2 border-t border-border bg-destructive/10 text-destructive text-xs font-medium">
-                {jsonStatus.error}
+              <footer className="shrink-0 px-3 py-2 border-t border-border bg-destructive/10 text-destructive text-xs font-medium flex items-center justify-between gap-2">
+                <span>
+                  {jsonStatus.line != null && jsonStatus.column != null
+                    ? `Line ${jsonStatus.line}, Col ${jsonStatus.column}: `
+                    : ''}
+                  {jsonStatus.error}
+                </span>
+                {jsonStatus.position != null && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] shrink-0"
+                    onClick={() => {
+                      setJumpToPosition(jsonStatus.position ?? null);
+                      setTimeout(() => setJumpToPosition(null), 100);
+                    }}
+                  >
+                    Go to error
+                  </Button>
+                )}
               </footer>
             )}
           </div>
@@ -1076,14 +1093,19 @@ const JsonPlayground: React.FC = () => {
         return (
           <div className="h-full flex flex-col border-r border-border">
             <PanelHeader
-              title="Tree"
               status={jsonStatus.valid ? 'valid' : 'invalid'}
-              statusText={
-                jsonStatus.valid ? '✓ Valid' : 'No valid JSON'
-              }
+              statusText={jsonStatus.valid ? '✓ Valid' : 'No valid JSON'}
               actions={
                 <div className="flex items-center gap-2">
-                  <GitBranch className="w-3.5 h-3.5 text-muted-foreground" />
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <Input
+                      value={treeFilter}
+                      onChange={(e) => setTreeFilter(e.target.value)}
+                      placeholder="Filter..."
+                      className="h-7 w-28 pl-7 text-xs"
+                    />
+                  </div>
                 </div>
               }
             />
@@ -1093,7 +1115,13 @@ const JsonPlayground: React.FC = () => {
                   <JsonTree
                     data={parsedJsonData}
                     onInsertPath={(path) => setInsertIntoCode(path)}
+                    filter={treeFilter}
                   />
+                  {highlightTreePath && (
+                    <p className="px-2 py-1 text-xs text-muted-foreground border-t border-border">
+                      Highlighted: {highlightTreePath}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="flex-1 flex items-center justify-center p-4 text-center text-muted-foreground text-sm">
@@ -1107,7 +1135,6 @@ const JsonPlayground: React.FC = () => {
         return (
           <div className="h-full flex flex-col border-r border-border">
             <PanelHeader
-              title="Code Editor"
               statusText="JavaScript"
               actions={
                 <div className="flex items-center gap-2">
@@ -1134,13 +1161,11 @@ const JsonPlayground: React.FC = () => {
               }
             />
             <div className="flex-1 overflow-hidden">
-              <CodeEditor
+              <JsCodeEditor
                 value={codeInput}
                 onChange={setCodeInput}
                 placeholder="Write your code here..."
-                language="javascript"
                 jsonData={parsedJsonData}
-                enableAutocomplete={true}
                 insertText={insertIntoCode}
                 onInsertDone={() => setInsertIntoCode(null)}
               />
@@ -1154,6 +1179,9 @@ const JsonPlayground: React.FC = () => {
               entries={output}
               meta={meta}
               isExecuting={isExecuting}
+              onSendToJson={sendToJson}
+              history={outputHistory}
+              onRestoreHistory={restoreHistory}
             />
           </div>
         );
@@ -1161,8 +1189,15 @@ const JsonPlayground: React.FC = () => {
   }, [
     jsonStatus.valid,
     jsonStatus.error,
+    jsonStatus.line,
+    jsonStatus.column,
+    jsonStatus.position,
     jsonInput,
     parsedJsonData,
+    schemaValid,
+    schemaOpen,
+    schemaText,
+    schemaValidateEnabled,
     loadUrlOpen,
     loadUrlValue,
     codeInput,
@@ -1170,22 +1205,54 @@ const JsonPlayground: React.FC = () => {
     output,
     meta,
     isExecuting,
+    treeFilter,
+    jumpToPosition,
+    outputHistory,
+    highlightTreePath,
     handleJsonChange,
+    getSchemaDiagnostics,
     loadFromFile,
     handleFileChange,
     loadFromUrl,
-    setLoadUrlOpen,
-    setLoadUrlValue,
     formatJson,
     minifyJson,
-    setCodeInput,
-    setInsertIntoCode,
+    downloadJson,
+    sortKeys,
+    applySample,
+    sendToJson,
+    restoreHistory,
   ]);
 
   const closedPanelIds = VALID_PANEL_IDS.filter((id) => !getPanelIdsInTree(layout).has(id));
 
   return (
     <div className="h-screen flex flex-col bg-background">
+      <input
+        ref={sessionImportRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={handleSessionImport}
+      />
+      <JsonDiffDialog
+        open={diffOpen}
+        onOpenChange={setDiffOpen}
+        leftJson={jsonInput}
+        onHighlightPath={setHighlightTreePath}
+      />
+      <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Keyboard shortcuts</DialogTitle>
+          </DialogHeader>
+          <ul className="text-sm space-y-2 text-muted-foreground">
+            <li><kbd className="px-1 rounded bg-muted">Ctrl/Cmd+Enter</kbd> — Run code</li>
+            <li>Format / Minify / Download — JSON panel toolbar</li>
+            <li>Live toggle — auto-run on edit</li>
+            <li>Share — copy URL with JSON + code state</li>
+          </ul>
+        </DialogContent>
+      </Dialog>
       {/* Header */}
       <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-card px-3">
         <div className="flex min-w-0 shrink-0 items-center gap-2">
@@ -1282,19 +1349,61 @@ const JsonPlayground: React.FC = () => {
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={convertToXaml}>
-                <FileDown className="h-3.5 w-3.5" />
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => setDiffOpen(true)}>
+                <GitCompare className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>To XAML</TooltipContent>
+            <TooltipContent>Compare JSON</TooltipContent>
           </Tooltip>
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
+                    <FileDown className="h-3.5 w-3.5" />
+                    Convert
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Convert JSON</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => convertJson('xaml')}>Copy as XAML</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => convertJson('xml')}>Copy as XML</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => convertJson('yaml')}>Copy as YAML</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => convertJson('csv')}>Copy as CSV</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => convertJson('toml')}>Copy as TOML</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => convertJson('env')}>Copy as .env</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <RouterLink to="/json-to-yaml">Open YAML converter</RouterLink>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 w-7 p-0">
+                    <Share2 className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Share & export</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={shareUrl}>Copy share link</DropdownMenuItem>
+              <DropdownMenuItem onClick={exportSession}>Export session file</DropdownMenuItem>
+              <DropdownMenuItem onClick={importSession}>Import session file</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={shareUrl}>
-                <Share2 className="h-3.5 w-3.5" />
+              <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => setShortcutsOpen(true)}>
+                <HelpCircle className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Share link</TooltipContent>
+            <TooltipContent>Shortcuts</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1311,6 +1420,23 @@ const JsonPlayground: React.FC = () => {
           </Tooltip>
         </div>
       </header>
+
+      {showHelpBanner && (
+        <Alert className="mx-3 mt-2 shrink-0 border-primary/30 bg-primary/5">
+          <AlertDescription className="flex flex-wrap items-center gap-2 text-xs">
+            <span>
+              <strong>data</strong> is your parsed JSON. Use <strong>Dump(value)</strong> for output.
+              Tree &quot;Use in code&quot; inserts paths. <kbd className="px-1 rounded bg-muted">Ctrl/Cmd+Enter</kbd> runs.
+            </span>
+            <Button variant="outline" size="sm" className="h-6 text-[11px]" onClick={() => dismissHelp(false)}>
+              Dismiss
+            </Button>
+            <Button size="sm" className="h-6 text-[11px]" onClick={() => dismissHelp(true)}>
+              Don&apos;t show again
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Main Content: tree-based layout */}
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">

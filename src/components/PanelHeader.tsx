@@ -1,7 +1,7 @@
 import React from 'react';
 
 interface PanelHeaderProps {
-  title: string;
+  title?: string;
   status?: 'valid' | 'invalid' | 'neutral';
   statusText?: string;
   actions?: React.ReactNode;
@@ -22,7 +22,7 @@ const PanelHeader: React.FC<PanelHeaderProps> = ({
   return (
     <div className="panel-header">
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="panel-title truncate">{title}</span>
+        {title ? <span className="panel-title truncate">{title}</span> : null}
         {statusText && (
           <span className={`shrink-0 text-xs font-medium ${statusColors[status]}`}>
             {statusText}
