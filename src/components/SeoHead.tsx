@@ -13,6 +13,9 @@ const OG_TITLE_ID = 'seo-og-title';
 const OG_DESCRIPTION_ID = 'seo-og-description';
 const TWITTER_TITLE_ID = 'seo-twitter-title';
 const TWITTER_DESCRIPTION_ID = 'seo-twitter-description';
+const OG_LOCALE_ID = 'seo-og-locale';
+const OG_IMAGE_ALT_ID = 'seo-og-image-alt';
+const TWITTER_IMAGE_ALT_ID = 'seo-twitter-image-alt';
 
 function ensureMeta(
   id: string,
@@ -88,6 +91,17 @@ export default function SeoHead() {
       name: 'twitter:description',
     });
     metaTwitterDescription.content = description;
+
+    const metaOgLocale = ensureMeta(OG_LOCALE_ID, { property: 'og:locale' });
+    metaOgLocale.content = 'en_US';
+
+    const metaOgImageAlt = ensureMeta(OG_IMAGE_ALT_ID, { property: 'og:image:alt' });
+    metaOgImageAlt.content = `${metaTitle} — ${description}`;
+
+    const metaTwitterImageAlt = ensureMeta(TWITTER_IMAGE_ALT_ID, {
+      name: 'twitter:image:alt',
+    });
+    metaTwitterImageAlt.content = `${metaTitle} — ${description}`;
 
     return () => {
       cleanupJsonLd();

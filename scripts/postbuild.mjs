@@ -61,6 +61,7 @@ const ROUTE_PATHS = [
   '/toml',
   '/env',
   '/jwt',
+  '/json-generator',
   '/xaml-to-json',
   '/json-to-xaml',
   '/yaml-to-json',

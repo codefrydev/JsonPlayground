@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/resizable';
 import { FileSpreadsheet, Home } from 'lucide-react';
 import CsvEditor from '@/components/CsvEditor';
+import DataPreviewTable from '@/components/DataPreviewTable';
 import DesktopOnly from '@/components/DesktopOnly';
 import { csvToData } from '@/lib/csv-json-convert';
 
@@ -75,28 +76,7 @@ const CsvPage: React.FC = () => {
                 ) : data.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Enter CSV to see table preview.</p>
                 ) : (
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr>
-                        {headers.map((h) => (
-                          <th key={h} className="border border-border bg-muted/50 px-3 py-2 text-left font-medium text-foreground">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.map((row, i) => (
-                        <tr key={i}>
-                          {headers.map((h) => (
-                            <td key={h} className="border border-border px-3 py-1.5 text-muted-foreground">
-                              {row[h]}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataPreviewTable headers={headers} rows={data} />
                 )}
               </div>
             </ResizablePanel>

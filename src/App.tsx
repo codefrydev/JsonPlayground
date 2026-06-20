@@ -24,6 +24,7 @@ import EnvPage from "./pages/EnvPage";
 import EnvToJsonPage from "./pages/EnvToJsonPage";
 import JsonToEnvPage from "./pages/JsonToEnvPage";
 import JwtPage from "./pages/JwtPage";
+import JsonGeneratorPage from "./pages/JsonGeneratorPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -56,6 +57,7 @@ const App = () => (
           <Route path="/env-to-json" element={<EnvToJsonPage />} />
           <Route path="/json-to-env" element={<JsonToEnvPage />} />
           <Route path="/jwt" element={<JwtPage />} />
+          <Route path="/json-generator" element={<JsonGeneratorPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

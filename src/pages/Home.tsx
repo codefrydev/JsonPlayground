@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { FileJson, FileCode, FileSpreadsheet, Key, Shield, ArrowRightLeft, ArrowLeftRight } from 'lucide-react';
+import { FileJson, FileCode, FileSpreadsheet, Key, Shield, Sparkles, ArrowRightLeft, ArrowLeftRight } from 'lucide-react';
 import DesktopOnly from '@/components/DesktopOnly';
 
 const Home = () => {
@@ -21,15 +21,15 @@ const Home = () => {
   const cardBase =
     'group block rounded-xl border border-border bg-card/80 backdrop-blur-sm p-6 h-full text-left transition-all duration-200 hover:border-primary/40 hover:bg-card hover:shadow-lg hover:shadow-primary/5 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background';
 
+  const generatorCard =
+    'group block rounded-xl border border-accent/30 bg-accent/[0.06] backdrop-blur-sm p-6 h-full text-left transition-all duration-200 hover:border-accent/50 hover:bg-accent/[0.1] hover:shadow-lg hover:shadow-accent/10 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background';
+
   return (
     <DesktopOnly>
       <div className="min-h-screen bg-background flex flex-col bg-gradient-to-b from-primary/[0.03] via-transparent to-transparent">
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 md:py-24">
           <div className="w-full max-w-4xl space-y-14">
             <header className="text-center space-y-4">
-              <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/60 px-4 py-1.5 text-xs font-medium text-muted-foreground">
-                No sign-up · Runs in the browser
-              </div>
               <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
                 JSON Explorer
               </h1>
@@ -170,6 +170,25 @@ const Home = () => {
                         Decode a JWT or encode header and payload into a signed token.
                       </p>
                       <span className="inline-flex items-center text-sm font-medium text-primary">
+                        Open playground
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+
+                <Link to="/json-generator" className={generatorCard}>
+                  <div className="flex gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/20 text-accent ring-1 ring-accent/30 transition-colors group-hover:bg-accent/30">
+                      <Sparkles className="h-6 w-6" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <h3 className="text-lg font-semibold text-foreground">
+                        JSON Generator
+                      </h3>
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        Define a schema and generate realistic mock JSON or CSV test data.
+                      </p>
+                      <span className="inline-flex items-center text-sm font-medium text-accent">
                         Open playground
                       </span>
                     </div>

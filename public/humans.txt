@@ -1,0 +1,13 @@
+/* TEAM */
+Developer: codefrydev
+Site: https://codefrydev.in
+From: India
+
+/* THANKS */
+Built with React, Vite, TypeScript, Tailwind CSS, and shadcn/ui.
+
+/* SITE */
+Standards: HTML5, CSS3, ES2022
+Components: React, CodeMirror
+Software: Cursor, VS Code
+Last update: 2026-06-20
