@@ -1,0 +1,56 @@
+# JSON Explorer
+
+> Free JSON Explorer and Playground. Paste JSON, explore the tree, and run JavaScript snippets against your data in the browser. No sign-up.
+
+JSON Explorer is a free, client-side developer tool for exploring JSON, running JavaScript against your data, converting between formats, and generating mock data from custom schemas. Everything runs in the browser — no account or server upload required.
+
+## Features
+
+- JSON tree explorer with path copy and autocomplete
+- JavaScript playground with `Dump()` output against your JSON
+- Shareable URLs and session restore via localStorage
+- Format converters: JSON, YAML, CSV, TOML, XML, XAML, and .env
+- JWT decode/encode playground
+- Mock JSON/CSV generator with visual schema editor
+
+## Home
+
+- [JSON Explorer](https://codefrydev.in/JsonPlayground/): Explore, edit, and query JSON or XAML. Tree view, JavaScript execution, and instant conversion between formats.
+
+## Playgrounds
+
+- [JSON Playground](https://codefrydev.in/JsonPlayground/json): Paste JSON, explore the tree, run JavaScript, and convert to XAML.
+- [XAML Playground](https://codefrydev.in/JsonPlayground/xaml): Edit XAML, view the tree, run JavaScript, and convert to JSON.
+- [YAML Playground](https://codefrydev.in/JsonPlayground/yaml): Edit YAML and view the parsed tree. Convert to JSON.
+- [CSV Playground](https://codefrydev.in/JsonPlayground/csv): Edit CSV, see table preview, and convert to JSON.
+- [TOML Playground](https://codefrydev.in/JsonPlayground/toml): Edit TOML and view the parsed tree. Convert to JSON.
+- [.env Playground](https://codefrydev.in/JsonPlayground/env): Edit .env key=value and see JSON preview.
+- [JWT Playground](https://codefrydev.in/JsonPlayground/jwt): Decode a JWT or encode header and payload into a signed token.
+- [JSON Generator](https://codefrydev.in/JsonPlayground/json-generator): Generate realistic mock JSON, CSV, or XML from a custom schema. Define fields, types, and blank rates — all in the browser.
+
+## Converters
+
+- [XAML to JSON](https://codefrydev.in/JsonPlayground/xaml-to-json): Paste XAML in one panel, see JSON output in the other.
+- [JSON to XAML](https://codefrydev.in/JsonPlayground/json-to-xaml): Paste JSON in one panel, see XAML output in the other.
+- [YAML to JSON](https://codefrydev.in/JsonPlayground/yaml-to-json): Paste YAML in one panel, see JSON output in the other.
+- [JSON to YAML](https://codefrydev.in/JsonPlayground/json-to-yaml): Paste JSON in one panel, see YAML output in the other.
+- [CSV to JSON](https://codefrydev.in/JsonPlayground/csv-to-json): Paste CSV in one panel, see JSON array in the other.
+- [JSON to CSV](https://codefrydev.in/JsonPlayground/json-to-csv): Paste JSON array of objects, see CSV in the other panel.
+- [TOML to JSON](https://codefrydev.in/JsonPlayground/toml-to-json): Paste TOML in one panel, see JSON in the other.
+- [JSON to TOML](https://codefrydev.in/JsonPlayground/json-to-toml): Paste JSON object in one panel, see TOML in the other.
+- [XML to JSON](https://codefrydev.in/JsonPlayground/xml-to-json): Paste XML in one panel, see JSON tree in the other.
+- [JSON to XML](https://codefrydev.in/JsonPlayground/json-to-xml): Paste JSON in one panel, see XML in the other.
+- [.env to JSON](https://codefrydev.in/JsonPlayground/env-to-json): Paste .env in one panel, see JSON in the other.
+- [JSON to .env](https://codefrydev.in/JsonPlayground/json-to-env): Paste JSON object in one panel, see .env in the other.
+
+## Documentation
+
+- [Extended site guide for LLMs](https://codefrydev.in/JsonPlayground/llms-full.txt)
+- [Sitemap](https://codefrydev.in/JsonPlayground/sitemap.xml)
+- [humans.txt](https://codefrydev.in/JsonPlayground/humans.txt)
+
+## Optional
+
+- [Live site](https://codefrydev.in/JsonPlayground/)
+- [GitHub repository](https://github.com/codefrydev/JsonPlayground)
+- [Report an issue](https://github.com/codefrydev/JsonPlayground/issues)

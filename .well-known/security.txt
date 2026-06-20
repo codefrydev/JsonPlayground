@@ -1,0 +1,5 @@
+Contact: https://github.com/codefrydev/JsonPlayground/issues
+Expires: 2027-06-20T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://codefrydev.in/JsonPlayground/.well-known/security.txt
+Policy: https://github.com/codefrydev/JsonPlayground/blob/main/README.md
