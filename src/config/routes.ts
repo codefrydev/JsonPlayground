@@ -59,7 +59,7 @@ export const ROUTE_META: RouteMeta[] = [
     path: '/json-generator',
     title: 'JSON Generator',
     description:
-      'Generate realistic mock JSON or CSV from a custom schema. Define fields, types, and blank rates — all in the browser.',
+      'Generate realistic mock JSON, CSV, or XML from a custom schema. Define fields, types, and blank rates — all in the browser.',
   },
   {
     path: '/xaml-to-json',

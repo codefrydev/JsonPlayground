@@ -43,6 +43,6 @@ export interface SchemaField {
   item?: SchemaField;
 }
 
-export type OutputFormat = 'json' | 'csv';
+export type OutputFormat = 'json' | 'csv' | 'xml';
 
 export const MAX_ROW_COUNT = 1000;

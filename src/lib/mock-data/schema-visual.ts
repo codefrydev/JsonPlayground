@@ -1,5 +1,12 @@
 import type { FieldType } from './types';
 
+/** Shared column layout for schema header + field rows */
+export const SCHEMA_ROW_GRID =
+  'grid grid-cols-[40px_minmax(0,1fr)_148px_72px_minmax(0,1fr)_80px] gap-2 items-center';
+
+/** Left indent per nesting level (px) */
+export const SCHEMA_NEST_INDENT = 20;
+
 export interface DepthStyle {
   border: string;
   bg: string;

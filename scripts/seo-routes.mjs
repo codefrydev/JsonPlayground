@@ -73,7 +73,7 @@ export const ROUTES = [
     path: '/json-generator',
     title: 'JSON Generator',
     description:
-      'Generate realistic mock JSON or CSV from a custom schema. Define fields, types, and blank rates — all in the browser.',
+      'Generate realistic mock JSON, CSV, or XML from a custom schema. Define fields, types, and blank rates — all in the browser.',
     section: 'Playgrounds',
   },
   {

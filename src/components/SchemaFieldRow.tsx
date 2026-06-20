@@ -16,7 +16,7 @@ import {
   getDefaultItemForArray,
   createSchemaField,
 } from '@/lib/mock-data/field-catalog';
-import { getDepthStyle, getTypeStyle } from '@/lib/mock-data/schema-visual';
+import { getDepthStyle, getTypeStyle, SCHEMA_ROW_GRID } from '@/lib/mock-data/schema-visual';
 import type { FieldType, SchemaField } from '@/lib/mock-data/types';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +27,8 @@ interface SchemaFieldRowProps {
   onRemove: () => void;
   canRemove: boolean;
   onAddChild?: () => void;
+  /** When true, row is rendered inside a parent container (no outer card) */
+  borderless?: boolean;
 }
 
 const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
@@ -36,6 +38,7 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
   onRemove,
   canRemove,
   onAddChild,
+  borderless = false,
 }) => {
   const meta = FIELD_TYPE_CATALOG.find((m) => m.type === field.type);
   const depthStyle = getDepthStyle(depth);
@@ -68,38 +71,31 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
     onChange({ ...field, item });
   };
 
-  return (
-    <div
-      className={cn(
-        'rounded-lg border transition-colors',
-        depth > 0 ? cn('border-border/60', depthStyle.bg) : 'border-border/40 bg-card/40',
-        isContainer && 'ring-1 ring-inset',
-        isContainer && depthStyle.ring
-      )}
-    >
-      <div className="grid grid-cols-[auto_1fr_132px_64px_1fr_auto] gap-2 items-center p-2">
-        <div className="flex flex-col items-center gap-0.5 w-8 shrink-0">
+  const rowBody = (
+    <>
+      <div className={`${SCHEMA_ROW_GRID} p-2`}>
+        <div className="flex h-9 w-10 shrink-0 items-center justify-center">
           {depth > 0 ? (
             <span
               className={cn(
-                'text-[10px] font-semibold uppercase tracking-wide leading-none',
+                'text-[10px] font-semibold uppercase tracking-wide',
                 depthStyle.text
               )}
               title={`Nesting ${depthStyle.label}`}
             >
               L{depth}
             </span>
-          ) : (
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
-              —
-            </span>
-          )}
-          {field.type === 'object' ? (
-            <Braces className={cn('h-3.5 w-3.5', depthStyle.text)} />
+          ) : field.type === 'object' ? (
+            <Braces className={cn('h-4 w-4', depthStyle.text)} />
           ) : field.type === 'array' ? (
-            <List className={cn('h-3.5 w-3.5', typeStyle.badge.includes('accent') ? 'text-accent' : depthStyle.text)} />
+            <List
+              className={cn(
+                'h-4 w-4',
+                typeStyle.badge.includes('accent') ? 'text-accent' : depthStyle.text
+              )}
+            />
           ) : (
-            <span className="h-3.5 w-3.5 rounded-full bg-muted-foreground/25" />
+            <span className="h-2 w-2 rounded-full bg-muted-foreground/30" />
           )}
         </div>
 
@@ -107,11 +103,11 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
           value={field.name}
           onChange={(e) => onChange({ ...field, name: e.target.value })}
           placeholder="field_name"
-          className={cn('h-9', isContainer && 'font-medium')}
+          className={cn('h-9 text-sm', isContainer && 'font-medium')}
         />
 
         <Select value={field.type} onValueChange={(v) => handleTypeChange(v as FieldType)}>
-          <SelectTrigger className={cn('h-9 text-xs', typeStyle.select)}>
+          <SelectTrigger className={cn('h-9 text-sm [&>span]:truncate', typeStyle.select)}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -144,13 +140,13 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
               blankPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
             })
           }
-          className="h-9"
+          className="h-9 text-sm"
           title="Blank %"
         />
 
-        <div className="min-w-0">
+        <div className="min-w-0 flex h-9 items-center">
           {meta?.hasNumericOptions ? (
-            <div className="flex gap-1">
+            <div className="flex w-full gap-1">
               <Input
                 type="number"
                 value={field.options?.min ?? ''}
@@ -161,7 +157,7 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
                   })
                 }
                 placeholder="min"
-                className="h-9"
+                className="h-9 min-w-0 text-sm"
               />
               <Input
                 type="number"
@@ -173,7 +169,7 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
                   })
                 }
                 placeholder="max"
-                className="h-9"
+                className="h-9 min-w-0 text-sm"
               />
             </div>
           ) : meta?.hasEnumOptions ? (
@@ -181,10 +177,10 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
               value={(field.options?.values ?? []).join(', ')}
               onChange={(e) => handleEnumValuesChange(e.target.value)}
               placeholder="A, B, C"
-              className="h-9"
+              className="h-9 w-full text-sm"
             />
           ) : meta?.hasArrayOptions ? (
-            <div className="flex gap-1">
+            <div className="flex w-full gap-1">
               <Input
                 type="number"
                 min={0}
@@ -199,7 +195,7 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
                   })
                 }
                 placeholder="min"
-                className="h-9"
+                className="h-9 min-w-0 text-sm"
                 title="Min items"
               />
               <Input
@@ -216,16 +212,16 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
                   })
                 }
                 placeholder="max"
-                className="h-9"
+                className="h-9 min-w-0 text-sm"
                 title="Max items"
               />
             </div>
           ) : (
-            <span className="text-xs text-muted-foreground px-1">—</span>
+            <span className="text-sm text-muted-foreground">—</span>
           )}
         </div>
 
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="flex h-9 items-center justify-end gap-0.5 shrink-0">
           {field.type === 'object' && onAddChild && (
             <Button
               type="button"
@@ -254,15 +250,21 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
       </div>
 
       {field.type === 'array' && field.item && (
-        <div className="flex items-center gap-2 px-2 pb-2 pt-0 border-t border-border/40 mx-2 mt-0 pt-2">
-          <span className={cn('text-xs font-medium whitespace-nowrap', typeStyle.badge.includes('accent') ? 'text-accent' : 'text-muted-foreground')}>
+        <div className={`${SCHEMA_ROW_GRID} border-t border-border/40 p-2 pt-2`}>
+          <div aria-hidden />
+          <span
+            className={cn(
+              'text-sm font-medium',
+              typeStyle.badge.includes('accent') ? 'text-accent' : 'text-muted-foreground'
+            )}
+          >
             Item type
           </span>
           <Select
             value={field.item.type}
             onValueChange={(v) => handleArrayItemTypeChange(v as FieldType)}
           >
-            <SelectTrigger className={cn('h-8 w-44 text-xs', getTypeStyle(field.item.type).select)}>
+            <SelectTrigger className={cn('h-9 text-sm [&>span]:truncate', getTypeStyle(field.item.type).select)}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -273,8 +275,27 @@ const SchemaFieldRow: React.FC<SchemaFieldRowProps> = ({
               ))}
             </SelectContent>
           </Select>
+          <div aria-hidden />
+          <div aria-hidden />
+          <div aria-hidden />
         </div>
       )}
+    </>
+  );
+
+  if (borderless) {
+    return rowBody;
+  }
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border transition-colors border-border/40 bg-card/40',
+        isContainer && 'ring-1 ring-inset',
+        isContainer && depthStyle.ring
+      )}
+    >
+      {rowBody}
     </div>
   );
 };
